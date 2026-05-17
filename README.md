@@ -80,28 +80,23 @@ flowchart LR
 
     subgraph stack["💻 Your Outvox stack"]
         direction TB
-        FE["Dashboard<br/>React · :3000"]
-        DB["Backend<br/>db_service · :8000"]
-        Agent["Voice Agent<br/>FastAPI · :5001"]
-        SQL[("SQL Server")]
+        FE["Dashboard<br/>(web UI)"]
+        DB[("Database<br/>+ Backend API")]
+        Agent["Voice Agent<br/>(call bridge)"]
         FE --- DB
-        DB --- SQL
         DB --- Agent
     end
 
-    Twilio["Twilio<br/>phone network"]
-    OpenAI["OpenAI Realtime<br/>AI conversation"]
-    Ngrok["ngrok tunnel<br/>public HTTPS"]
+    Twilio["☎️ Twilio<br/>phone network"]
+    OpenAI["🧠 OpenAI Realtime<br/>AI voice"]
+    Ngrok[/"🌐 ngrok tunnel<br/>(public URL for<br/>your local agent)"/]
 
-    Operator -->|manages leads,<br/>starts campaigns| FE
-    Agent -->|① places call| Twilio
-    Twilio <==>|② live phone call| Lead
-    Twilio -->|③ webhooks + audio<br/>via ngrok| Ngrok
-    Ngrok --> Agent
-    Agent <==>|④ speech in,<br/>speech out| OpenAI
+    Operator -->|uses dashboard| FE
+    Agent <==> Ngrok
+    Ngrok <==>|calls &amp; audio| Twilio
+    Twilio <==>|live phone call| Lead
+    Agent <==>|live AI speech| OpenAI
 ```
-
-**Read it as a story.** The **operator** opens the dashboard and starts a campaign. The backend hands the job to a **voice agent**, which asks **Twilio** to place the call ①. When the lead picks up ②, Twilio streams the audio back to your machine through the **ngrok tunnel** ③ — necessary because Twilio's cloud can't otherwise reach a service running on your laptop. The agent relays that audio to **OpenAI Realtime** ④, which talks back in real time. Everything Twilio hears, OpenAI hears; everything OpenAI says, Twilio plays to the lead. The backend logs every call, message, and transcript along the way.
 
 <details>
 <summary><strong>New here? Quick vocabulary</strong></summary>
