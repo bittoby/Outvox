@@ -3,6 +3,8 @@
 **Outbound voice + SMS campaign fleet, powered by OpenAI Realtime and Twilio.**
 Licensed under **Apache-2.0**.
 
+![Outvox hero](doc/assets/outvox.webp)
+
 > ⚠️ **Read [`DISCLAIMER.md`](DISCLAIMER.md) and [`SECURITY.md`](SECURITY.md) before
 > placing real calls.** This software automates outbound voice calls and SMS;
 > TCPA, FCC, state-level mini-TCPAs, CTIA, and carrier rules all apply. The
