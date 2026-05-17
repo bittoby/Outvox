@@ -1,0 +1,322 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                 OUTBOUND CALLING SYSTEM                           ║
+# ║                 Docker Compose Configuration                                 ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# Architecture:
+#   - 1 Nginx Load Balancer (port 5100)
+#   - 10 Voice Agents (ports 5101-5110)
+#   - Shared network for inter-service communication
+#
+# All shared configuration (API keys, settings) is loaded from .env automatically
+# Only agent-specific values (AGENT_ID) are set per service
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # NGINX LOAD BALANCER
+  # Distributes incoming requests across all healthy agents
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: outvox-nginx
+    ports:
+      - "5100:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - outvox-agent1
+      - outvox-agent2
+      - outvox-agent3
+      - outvox-agent4
+      - outvox-agent5
+      - outvox-agent6
+      - outvox-agent7
+      - outvox-agent8
+      - outvox-agent9
+      - outvox-agent10
+    networks:
+      - outvox-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VOICE AGENTS (OUT1 - OUT10)
+  # Each agent handles outbound calls with AI voice processing
+  # All configuration loaded from .env except agent-specific AGENT_ID
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  outvox-agent1:
+    build: .
+    container_name: outvox-agent1
+    ports:
+      - "5101:5001"
+    environment:
+      - AGENT_ID=OUT1          # Agent-specific identifier
+      - PORT=5001              # Internal port (for clarity)
+      - DB_SERVICE_URL=http://host.docker.internal:8000  # Override for Docker
+    env_file:
+      - .env                   # All other config loaded from here
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent2:
+    build: .
+    container_name: outvox-agent2
+    ports:
+      - "5102:5001"
+    environment:
+      - AGENT_ID=OUT2
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent3:
+    build: .
+    container_name: outvox-agent3
+    ports:
+      - "5103:5001"
+    environment:
+      - AGENT_ID=OUT3
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent4:
+    build: .
+    container_name: outvox-agent4
+    ports:
+      - "5104:5001"
+    environment:
+      - AGENT_ID=OUT4
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent5:
+    build: .
+    container_name: outvox-agent5
+    ports:
+      - "5105:5001"
+    environment:
+      - AGENT_ID=OUT5
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent6:
+    build: .
+    container_name: outvox-agent6
+    ports:
+      - "5106:5001"
+    environment:
+      - AGENT_ID=OUT6
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent7:
+    build: .
+    container_name: outvox-agent7
+    ports:
+      - "5107:5001"
+    environment:
+      - AGENT_ID=OUT7
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent8:
+    build: .
+    container_name: outvox-agent8
+    ports:
+      - "5108:5001"
+    environment:
+      - AGENT_ID=OUT8
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent9:
+    build: .
+    container_name: outvox-agent9
+    ports:
+      - "5109:5001"
+    environment:
+      - AGENT_ID=OUT9
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  outvox-agent10:
+    build: .
+    container_name: outvox-agent10
+    ports:
+      - "5110:5001"
+    environment:
+      - AGENT_ID=OUT10
+      - PORT=5001
+      - DB_SERVICE_URL=http://host.docker.internal:8000
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - outvox-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NETWORK CONFIGURATION
+# Isolated network for all outbound services
+# ═══════════════════════════════════════════════════════════════════════════
+
+networks:
+  outvox-network:
+    driver: bridge
+    name: outvox-network
+
+# ═══════════════════════════════════════════════════════════════════════════
+# USAGE INSTRUCTIONS
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Start all services:
+#   docker-compose up -d
+#
+# Start with rebuild:
+#   docker-compose up --build -d
+#
+# View logs:
+#   docker-compose logs -f
+#
+# View logs for specific agent:
+#   docker-compose logs -f outvox-agent1
+#
+# Stop all services:
+#   docker-compose down
+#
+# Restart all services:
+#   docker-compose restart
+#
+# Check service status:
+#   docker-compose ps
+#
+# Scale agents (if needed in future):
+#   docker-compose up -d --scale outvox-agent1=2
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT VARIABLES
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# All configuration is loaded from .env file automatically, including:
+#
+# Required:
+#   - OPENAI_API_KEY
+#   - TWILIO_ACCOUNT_SID
+#   - TWILIO_AUTH_TOKEN
+#   - SQLServer, SQLUser, SQLPassword, SQLDatabase
+#   - NGROK_HOST
+#
+# V2.0 Features:
+#   - MAX_CALL_DURATION (default: 300)
+#   - ENABLE_CALL_RECORDING (default: true)
+#   - ENFORCE_ENGLISH_ONLY (default: true)
+#   - SENTIMENT_THRESHOLD (default: -0.3)
+#   - VOICE_SELECTION (default: sage)
+#
+# See env.template for complete list of available variables
+#

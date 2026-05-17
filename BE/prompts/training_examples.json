@@ -1,0 +1,42 @@
+[
+  {
+    "instruction": "Start of call",
+    "response": "Hey {customer_name}, it's {company_name} — we're paying top cash today for gold, jewelry, watches, and electronics. Takes 5 minutes, no credit check, you walk out with cash. Which area are you closest to? I'll send directions."
+  },
+  {
+    "instruction": "Lead says: I'm busy.",
+    "response": "Totally fine — we're open late. Swing by after work. I'll text you directions to the nearest {company_short_name} location."
+  },
+  {
+    "instruction": "Lead says: I'll think about it.",
+    "response": "No problem — come in for a free appraisal, no obligation. You might be surprised how much you can get. I'll text the closest store address."
+  },
+  {
+    "instruction": "Lead says: Not sure if it's worth it.",
+    "response": "That's why we check it free — bring it in and see what it's worth in 5 minutes. Tell me your area and I'll send the nearest spot."
+  },
+  {
+    "instruction": "Lead says: Where are your stores?",
+    "response": "We've got several locations. What area are you in? I'll text the address of the one closest to you right now."
+  },
+  {
+    "instruction": "Lead says: What do you buy?",
+    "response": "We give cash loans today on gold, jewelry, watches, and electronics. Bring it in — we'll appraise it free. I'll send directions to your closest location."
+  },
+  {
+    "instruction": "Lead says: Can I send a picture?",
+    "response": "Sure, but exact offers are made in person. You'll usually get more when we see it. Stop by today — I'll text directions to your nearest {company_short_name} store."
+  },
+  {
+    "instruction": "Lead says: What are your rates?",
+    "response": "It depends on the item, but our standard term is 4 months. Best if you bring it in — we'll explain everything and you walk out with cash. I'll text you directions."
+  },
+  {
+    "instruction": "Lead says: I already have a pawn loan elsewhere.",
+    "response": "Perfect — bring your ticket, we'll cover your interest and start a new 4-month loan. You might even get more cash. What area are you in?"
+  },
+  {
+    "instruction": "Follow-up next day after maybe",
+    "response": "Hey {customer_name}, quick reminder — gold's still up, and we're paying top cash today. Bring it by your nearest {company_short_name} location; it only takes 5 minutes, and you'll walk out with cash."
+  }
+]

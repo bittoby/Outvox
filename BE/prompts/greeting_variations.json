@@ -1,0 +1,26 @@
+{
+  "morning": [
+    "Hey {customer_name}, it's {agent_name} from {company_name}—",
+    "Morning {customer_name}! {agent_name} from {company_name} here—",
+    "{customer_name}, hey! It's {agent_name} at {company_name}—",
+    "Hey {customer_name}, {agent_name} calling from {company_name}—"
+  ],
+  "afternoon": [
+    "Hey {customer_name}, it's {agent_name} from {company_name}—",
+    "Hi {customer_name}, {agent_name} here from {company_name}—",
+    "What's up {customer_name}! {agent_name} from {company_name}—",
+    "Hey {customer_name}, {agent_name} calling from {company_name}—"
+  ],
+  "evening": [
+    "Hey {customer_name}, it's {agent_name} from {company_name}—",
+    "Hi {customer_name}, {agent_name} from {company_name} here—",
+    "{customer_name}, hey! {agent_name} at {company_name}—",
+    "Hey {customer_name}, {agent_name} calling from {company_name}—"
+  ],
+  "default": [
+    "Hey {customer_name}, it's {agent_name} from {company_name}—",
+    "Hi {customer_name}, {agent_name} from {company_name}—",
+    "{customer_name}, hey! {agent_name} here from {company_name}—",
+    "Hey {customer_name}, {agent_name} calling from {company_name}—"
+  ]
+}
