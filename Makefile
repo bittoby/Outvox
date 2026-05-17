@@ -1,35 +1,51 @@
 # Outvox developer task runner.
 #
-# Targets are intentionally thin wrappers around the commands documented in
-# README.md so the README stays the source of truth. Run `make help` for the
-# list. Windows contributors: see dev.ps1 for an equivalent runner.
+# Creates a single `.venv` at the repo root and installs both the backend
+# requirements and the test requirements into it. The .venv is the single
+# Python execution environment for every backend task.
+#
+# Run `make help` for the full task list. Windows contributors: see dev.ps1
+# for an equivalent runner.
 
 .PHONY: help install install-be install-fe install-tests test test-be lint typecheck \
         build dev-be dev-fe clean
 
-PYTHON ?= python
-NPM ?= npm
+# Python launcher. Override on the command line if you need a specific
+# version, e.g. `make install PYTHON=python3.12`. The minimum supported
+# version is 3.11. Maximum is whatever has wheels for pydantic_core and
+# asyncpg (3.13 at the time of writing).
+PYTHON ?= python3
+NPM    ?= npm
+
+VENV       := .venv
+VENV_PY    := $(VENV)/bin/python
+VENV_PIP   := $(VENV_PY) -m pip
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "Outvox tasks:\n"} \
 	      /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' \
 	      $(MAKEFILE_LIST)
 
-install: install-be install-fe install-tests ## Install BE, FE and test dependencies.
+$(VENV_PY):
+	@echo ">> creating .venv with $(PYTHON)"
+	$(PYTHON) -m venv $(VENV)
+	$(VENV_PIP) install --upgrade pip --quiet
 
-install-be: ## Install backend Python dependencies.
-	$(PYTHON) -m pip install -r BE/requirements.txt
+install: install-be install-tests install-fe ## Install backend, test and frontend dependencies.
+
+install-be: $(VENV_PY) ## Install backend Python dependencies into .venv.
+	$(VENV_PIP) install -r BE/requirements.txt
+
+install-tests: $(VENV_PY) ## Install test dependencies into .venv.
+	$(VENV_PIP) install -r tests/requirements.txt
 
 install-fe: ## Install frontend npm dependencies.
 	cd FE && $(NPM) ci
 
-install-tests: ## Install backend test dependencies.
-	$(PYTHON) -m pip install -r tests/requirements.txt python-dotenv
-
 test: test-be ## Run all automated tests (currently backend pytest only).
 
-test-be: ## Run the backend pytest suite.
-	$(PYTHON) -m pytest
+test-be: ## Run the backend pytest suite via .venv.
+	$(VENV_PY) -m pytest
 
 lint: ## Lint frontend code.
 	cd FE && $(NPM) run lint
@@ -41,11 +57,11 @@ build: ## Build the frontend for production.
 	cd FE && $(NPM) run build
 
 dev-be: ## Run the database service locally (port 8000).
-	cd BE && $(PYTHON) db_service.py
+	cd BE && ../$(VENV_PY) db_service.py
 
 dev-fe: ## Run the frontend dev server (port 3000).
 	cd FE && $(NPM) run dev
 
-clean: ## Remove build and cache artifacts.
-	rm -rf FE/dist FE/node_modules/.cache .pytest_cache .venv-test
+clean: ## Remove build and cache artifacts (including .venv).
+	rm -rf FE/dist FE/node_modules/.cache .pytest_cache $(VENV)
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

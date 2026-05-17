@@ -1,1 +1,5 @@
+# Test-only dependencies. Installed into the project .venv alongside
+# BE/requirements.txt by `dev.ps1 install` / `make install`.
+
 pytest==8.3.4
+python-dotenv==1.0.1

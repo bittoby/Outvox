@@ -22,9 +22,11 @@ import {
 import Card from '../components/Card/Card';
 import Button from '../components/Button/Button';
 import toast, { Toaster } from 'react-hot-toast';
-import { API_CONFIG } from '../services/config';
-
-const API_BASE_URL = API_CONFIG.DB_SERVICE;
+import {
+  getAIProviderSettings,
+  saveAIProviderSettings,
+  fetchOpenAIVoices as fetchOpenAIVoicesApi,
+} from '../services/api/settings';
 
 type AIProvider = 'openai' | 'elevenlabs';
 
@@ -190,38 +192,35 @@ const SettingsPage: React.FC = () => {
   // Loading state for initial fetch
   const [loadingSettings, setLoadingSettings] = useState(true);
 
-  // Load saved settings from backend on mount
+  // Load saved settings from backend on mount.
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/settings/ai-provider`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.settings) {
-            setSelectedProvider(data.settings.selected_provider || 'openai');
-            
-            // Map backend snake_case to frontend camelCase
-            if (data.settings.openai) {
-              setOpenaiSettings({
-                voice: data.settings.openai.voice || 'alloy',
-                model: data.settings.openai.model || 'gpt-realtime-2025-08-28',
-                vadThreshold: data.settings.openai.vad_threshold ?? 0.5,
-                temperature: data.settings.openai.temperature ?? 0.8,
-                maxTokens: data.settings.openai.max_tokens ?? 4096,
-              });
-            }
-            
-            if (data.settings.elevenlabs) {
-              setElevenlabsSettings({
-                voiceId: data.settings.elevenlabs.voice_id || '',
-                voiceName: data.settings.elevenlabs.voice_name || '',
-                model: data.settings.elevenlabs.model || 'eleven_turbo_v2_5',
-                stability: data.settings.elevenlabs.stability ?? 0.5,
-                similarityBoost: data.settings.elevenlabs.similarity_boost ?? 0.75,
-                language: data.settings.elevenlabs.language || 'en',
-                agentId: data.settings.elevenlabs.agent_id || '',
-              });
-            }
+        const data = await getAIProviderSettings();
+        if (data.success && data.settings) {
+          setSelectedProvider(data.settings.selected_provider || 'openai');
+
+          // Map backend snake_case to frontend camelCase.
+          if (data.settings.openai) {
+            setOpenaiSettings({
+              voice: data.settings.openai.voice || 'alloy',
+              model: data.settings.openai.model || 'gpt-realtime-2025-08-28',
+              vadThreshold: data.settings.openai.vad_threshold ?? 0.5,
+              temperature: data.settings.openai.temperature ?? 0.8,
+              maxTokens: data.settings.openai.max_tokens ?? 4096,
+            });
+          }
+
+          if (data.settings.elevenlabs) {
+            setElevenlabsSettings({
+              voiceId: data.settings.elevenlabs.voice_id || '',
+              voiceName: data.settings.elevenlabs.voice_name || '',
+              model: data.settings.elevenlabs.model || 'eleven_turbo_v2_5',
+              stability: data.settings.elevenlabs.stability ?? 0.5,
+              similarityBoost: data.settings.elevenlabs.similarity_boost ?? 0.75,
+              language: data.settings.elevenlabs.language || 'en',
+              agentId: data.settings.elevenlabs.agent_id || '',
+            });
           }
         }
       } catch (error) {
@@ -231,70 +230,53 @@ const SettingsPage: React.FC = () => {
         setLoadingSettings(false);
       }
     };
-    
+
     loadSettings();
   }, []);
 
-  // Fetch OpenAI voices on mount
+  // Fetch OpenAI voices on mount.
   useEffect(() => {
     fetchOpenAIVoices();
   }, []);
 
-  // ElevenLabs voice fetching removed - all config is done in ElevenLabs dashboard
-
   const fetchOpenAIVoices = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/settings/openai/voices`);
-      if (response.ok) {
-        const data = await response.json();
-        setOpenaiVoices(data.voices || []);
-      }
+      const data = await fetchOpenAIVoicesApi();
+      setOpenaiVoices(data.voices || []);
     } catch (error) {
       console.error('Error fetching OpenAI voices:', error);
     }
   };
 
-  // ElevenLabs voices fetch removed - not needed since all config is in ElevenLabs dashboard
-
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Save to backend API
-      const response = await fetch(`${API_BASE_URL}/api/settings/ai-provider`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const data = await saveAIProviderSettings({
+        selected_provider: selectedProvider,
+        openai: {
+          voice: openaiSettings.voice,
+          model: openaiSettings.model,
+          vad_threshold: openaiSettings.vadThreshold,
+          temperature: openaiSettings.temperature,
+          max_tokens: openaiSettings.maxTokens,
         },
-        body: JSON.stringify({
-          selected_provider: selectedProvider,
-          openai: {
-            voice: openaiSettings.voice,
-            model: openaiSettings.model,
-            vad_threshold: openaiSettings.vadThreshold,
-            temperature: openaiSettings.temperature,
-            max_tokens: openaiSettings.maxTokens,
-          },
-          elevenlabs: {
-            voice_id: elevenlabsSettings.voiceId,
-            voice_name: elevenlabsSettings.voiceName,
-            model: elevenlabsSettings.model,
-            stability: elevenlabsSettings.stability,
-            similarity_boost: elevenlabsSettings.similarityBoost,
-            language: elevenlabsSettings.language,
-            agent_id: elevenlabsSettings.agentId,
-          },
-        }),
+        elevenlabs: {
+          voice_id: elevenlabsSettings.voiceId,
+          voice_name: elevenlabsSettings.voiceName,
+          model: elevenlabsSettings.model,
+          stability: elevenlabsSettings.stability,
+          similarity_boost: elevenlabsSettings.similarityBoost,
+          language: elevenlabsSettings.language,
+          agent_id: elevenlabsSettings.agentId,
+        },
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          toast.success(`Settings saved for ${selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`);
-        } else {
-          throw new Error(data.message || 'Failed to save');
-        }
+
+      if (data.success) {
+        toast.success(
+          `Settings saved for ${selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`
+        );
       } else {
-        throw new Error('Server error');
+        throw new Error('Failed to save');
       }
     } catch (error) {
       console.error('Error saving settings:', error);

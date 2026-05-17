@@ -73,7 +73,7 @@ Demo mode is for "is this thing alive?" verification — it does **not** exercis
 
 | Required | Version |
 | --- | --- |
-| Python | 3.11+ |
+| Python | 3.11, 3.12, or 3.13 (3.14 not yet supported by pinned deps) |
 | Node.js | 18+ |
 | SQL Server | 2019+ (or LocalDB / containerized) |
 | ODBC Driver 18 for SQL Server | latest |
@@ -105,15 +105,15 @@ make install        # installs BE, FE and test dependencies
 <summary>Or install manually</summary>
 
 ```bash
-# Backend
-cd BE
-cp env.example .env          # Windows: Copy-Item env.example .env
-python -m venv .venv
-source .venv/bin/activate    # Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+# Backend + tests share a single .venv at the repo root
+python3.12 -m venv .venv          # or 3.11 / 3.13
+source .venv/bin/activate         # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r BE/requirements.txt
+pip install -r tests/requirements.txt
+cp BE/env.example BE/.env         # Windows: Copy-Item BE\env.example BE\.env
 
 # Frontend
-cd ../FE
+cd FE
 cp env.example .env
 npm install
 ```
@@ -361,6 +361,19 @@ Install Microsoft ODBC Driver 18:
 <summary><strong>"Configuration errors: OPENAI_API_KEY is required" on startup</strong></summary>
 
 You haven't filled in `BE/.env`. Copy `env.example` to `.env` and add your real credentials. The validator skips this check for setup scripts and workers — only the main services require it.
+
+</details>
+
+<details>
+<summary><strong>pip fails to build pydantic_core or asyncpg on Windows</strong></summary>
+
+You are probably on Python 3.14. The pinned dependencies have prebuilt wheels for Python 3.11 - 3.13 only. Install a supported version:
+
+```powershell
+winget install -e --id Python.Python.3.12
+```
+
+Then `.\dev.ps1 clean; .\dev.ps1 install`. The dev runner will detect 3.12 and use it.
 
 </details>
 

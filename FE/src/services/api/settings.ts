@@ -1,7 +1,15 @@
 /**
  * Settings API Service
- * Handles AI provider settings and configuration via backend API
+ *
+ * Handles AI provider settings and voice fetching.
+ *
+ * Uses `axios` for HTTP — the global X-API-Key header installed by
+ * services/authBootstrap.ts only attaches to axios requests, so any use of
+ * the native fetch() API here would silently drop authentication and hit
+ * 401 against an API-key-protected backend.
  */
+
+import axios from 'axios';
 
 import type { AIProvider } from '../../types/settings';
 import { API_CONFIG } from '../config';
@@ -44,101 +52,89 @@ export interface SaveSettingsRequest {
 }
 
 /**
- * Get AI provider settings from backend
+ * Get AI provider settings from backend.
  */
 export const getAIProviderSettings = async (): Promise<AIProviderSettingsResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/settings/ai-provider`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch AI provider settings');
-  }
-  return response.json();
+  const response = await axios.get<AIProviderSettingsResponse>(
+    `${API_BASE_URL}/api/settings/ai-provider`
+  );
+  return response.data;
 };
 
 /**
- * Save AI provider settings to backend
+ * Save AI provider settings to backend.
  */
-export const saveAIProviderSettings = async (settings: SaveSettingsRequest): Promise<AIProviderSettingsResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/settings/ai-provider`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(settings),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to save AI provider settings');
-  }
-  return response.json();
+export const saveAIProviderSettings = async (
+  settings: SaveSettingsRequest
+): Promise<AIProviderSettingsResponse> => {
+  const response = await axios.post<AIProviderSettingsResponse>(
+    `${API_BASE_URL}/api/settings/ai-provider`,
+    settings
+  );
+  return response.data;
 };
 
 /**
- * Get the current AI provider setting (quick check)
+ * Get the current AI provider setting (quick check).
  */
 export const getActiveProvider = async (): Promise<AIProvider> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/settings/ai-provider/active`);
-    if (response.ok) {
-      const data = await response.json();
-      return data.provider;
-    }
+    const response = await axios.get<{ provider: AIProvider }>(
+      `${API_BASE_URL}/api/settings/ai-provider/active`
+    );
+    return response.data.provider;
   } catch (error) {
     console.error('Failed to get active provider:', error);
+    return 'openai';
   }
-  return 'openai'; // Default to OpenAI
 };
 
 /**
- * Get the current AI provider setting (sync version for backward compatibility)
- * Falls back to localStorage if API not available
+ * Get the current AI provider setting (sync version for backward compatibility).
+ * Falls back to localStorage if API not available.
  */
 export const getAIProvider = (): AIProvider => {
   const saved = localStorage.getItem('ai_provider_cache');
   if (saved === 'openai' || saved === 'elevenlabs') {
     return saved;
   }
-  return 'openai'; // Default to OpenAI
+  return 'openai';
 };
 
 /**
- * Save the AI provider setting (sync version for backward compatibility)
- * Updates localStorage cache
+ * Save the AI provider setting (sync version for backward compatibility).
+ * Updates localStorage cache.
  */
 export const saveAIProvider = (provider: AIProvider): void => {
   localStorage.setItem('ai_provider_cache', provider);
 };
 
 /**
- * Check if ElevenLabs is enabled
+ * Check if ElevenLabs is enabled.
  */
 export const isElevenLabsEnabled = (): boolean => {
   return getAIProvider() === 'elevenlabs';
 };
 
 /**
- * Check if OpenAI is enabled
+ * Check if OpenAI is enabled.
  */
 export const isOpenAIEnabled = (): boolean => {
   return getAIProvider() === 'openai';
 };
 
 /**
- * Fetch ElevenLabs voices from backend
+ * Fetch ElevenLabs voices from backend.
  */
 export const fetchElevenLabsVoices = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/settings/elevenlabs/voices`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch ElevenLabs voices');
-  }
-  return response.json();
+  const response = await axios.get(`${API_BASE_URL}/api/settings/elevenlabs/voices`);
+  return response.data;
 };
 
 /**
- * Fetch OpenAI voices from backend
+ * Fetch OpenAI voices from backend.
  */
 export const fetchOpenAIVoices = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/settings/openai/voices`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch OpenAI voices');
-  }
-  return response.json();
+  const response = await axios.get(`${API_BASE_URL}/api/settings/openai/voices`);
+  return response.data;
 };
