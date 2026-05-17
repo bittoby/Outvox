@@ -53,30 +53,21 @@ SQL_DATABASE = os.getenv('SQLDatabase')
 
 
 def get_sqlserver_connection():
-    """Get SQL Server connection (used for health check only)."""
+    """Get SQL Server connection (used for health check only).
+
+    The actual connection-string assembly lives in ``core.db`` so it cannot
+    drift from the repository layer.
+    """
+    from core.db import build_sqlserver_connection_string, DatabaseConfigurationError
+
     try:
-        if not SQL_SERVER or not SQL_DATABASE:
-            raise ValueError("SQLServer and SQLDatabase are required for DATABASE_BACKEND=sqlserver")
-        # Use Windows Authentication for LocalDB
-        if "localdb" in SQL_SERVER.lower():
-            connection_string = (
-                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-                f"SERVER={SQL_SERVER};"
-                f"DATABASE={SQL_DATABASE};"
-                f"Trusted_Connection=yes;"
-            )
-        else:
-            # Use SQL Server authentication for remote servers
-            connection_string = (
-                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-                f"SERVER={SQL_SERVER};"
-                f"DATABASE={SQL_DATABASE};"
-                f"UID={SQL_USER};"
-                f"PWD={SQL_PASSWORD}"
-            )
+        connection_string = build_sqlserver_connection_string()
         return pyodbc.connect(connection_string)
+    except DatabaseConfigurationError as e:
+        logger.error(f"Database configuration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        print(f"Database connection error: {e}")
+        logger.error(f"Database connection error: {e}")
         raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")
 
 

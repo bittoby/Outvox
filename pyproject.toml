@@ -1,0 +1,45 @@
+[project]
+name = "outvox"
+version = "0.1.0"
+description = "Outbound voice + SMS campaign fleet, powered by OpenAI Realtime and Twilio."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+
+# Runtime dependencies are pinned in BE/requirements.txt because that file is
+# what the Docker images and operator scripts install from. We deliberately do
+# NOT duplicate them here to avoid two sources of truth drifting apart.
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Make BE importable without forcing the caller to set PYTHONPATH=BE.
+pythonpath = ["BE"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv", ".venv-test", "FE", "dist", "build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# The codebase is older than this config — don't break the build on rules
+# that would require sweeping refactors. New code should still aim to be
+# clean against the full select set above.
+ignore = [
+    "E501",  # line-too-long (many SQL strings exceed 100 cols)
+    "B008",  # function-call-in-default-argument (FastAPI Depends pattern)
+    "UP007", # Optional[X] vs X | None — backend targets 3.11+
+    "UP035", # typing.X imports still common in this codebase
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

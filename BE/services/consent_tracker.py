@@ -46,22 +46,14 @@ TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 
 
-# Reply classification keyword lists
-YES_KEYWORDS = [
-    'yes', 'yeah', 'yea', 'yep', 'sure', 'ok', 'okay', 'k',
-    'interested', 'call me', 'call', 'contact me', 'reach out',
-    'sounds good', 'that works', 'perfect', 'great', 'absolutely',
-    'definitely', 'confirm', 'confirmed', 'accept', 'agree',
-    'si', 'sí'  # Spanish
-]
-
-STOP_KEYWORDS = [
-    'stop', 'unsubscribe', 'remove', 'no', 'nope', 'nah',
-    "don't", 'dont', 'never', 'leave me alone', 'not interested',
-    'remove me', 'take me off', 'delete', 'cancel', 'quit',
-    'end', 'opt out', 'optout', 'opt-out', 'do not contact',
-    'do not call', "don't call", 'dont call', 'no thanks'
-]
+# Reply classification keyword lists live in services.consent_classifier so
+# they can be unit-tested without importing twilio/pyodbc. Re-exported here
+# for backward compatibility with anything that imports them from this module.
+from services.consent_classifier import (  # noqa: E402
+    YES_KEYWORDS,
+    STOP_KEYWORDS,
+    classify_reply as _classify_reply_impl,
+)
 
 
 class ConsentTracker:
@@ -114,13 +106,15 @@ class ConsentTracker:
     
     def __init__(self):
         """Initialize the consent tracker."""
-        self.connection_string = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-            f"SERVER={SQL_SERVER};"
-            f"DATABASE={SQL_DATABASE};"
-            f"UID={SQL_USER};"
-            f"PWD={SQL_PASSWORD}"
-        )
+        from core.db import build_sqlserver_connection_string, DatabaseConfigurationError
+
+        try:
+            self.connection_string = build_sqlserver_connection_string()
+        except DatabaseConfigurationError:
+            # Allow construction in environments where SQL Server isn't
+            # configured (e.g. unit tests of ``classify_reply``); database
+            # operations will fail loudly when actually invoked.
+            self.connection_string = ""
         
         # Initialize Twilio client
         if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
@@ -159,41 +153,7 @@ class ConsentTracker:
             >>> tracker.classify_reply("Who is this?")
             "OTHER"
         """
-        if not body or not isinstance(body, str):
-            return "OTHER"
-        
-        # Normalize: lowercase, keep only alphanumeric and spaces
-        normalized = re.sub(r'[^a-z0-9\s]', '', body.lower().strip())
-        
-        # Split into words
-        words = normalized.split()
-        
-        # Check for STOP keywords first (compliance priority)
-        for keyword in STOP_KEYWORDS:
-            keyword_words = keyword.split()
-            if len(keyword_words) == 1:
-                # Single word match
-                if keyword in words:
-                    return "STOP"
-            else:
-                # Multi-word phrase match
-                if keyword in normalized:
-                    return "STOP"
-        
-        # Check for YES keywords
-        for keyword in YES_KEYWORDS:
-            keyword_words = keyword.split()
-            if len(keyword_words) == 1:
-                # Single word match
-                if keyword in words:
-                    return "YES"
-            else:
-                # Multi-word phrase match
-                if keyword in normalized:
-                    return "YES"
-        
-        # Default to OTHER
-        return "OTHER"
+        return _classify_reply_impl(body)
     
     def process_reply(
         self,

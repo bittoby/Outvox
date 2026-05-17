@@ -3,27 +3,27 @@ Base Repository
 Provides common database operations for all repositories.
 """
 
-import os
 import pyodbc
 from typing import Optional, List, Dict, Any, Tuple
 from contextlib import contextmanager
 from dotenv import load_dotenv
+
+from core.db import build_sqlserver_connection_string
 
 load_dotenv()
 
 
 class BaseRepository:
     """Base repository with common database operations."""
-    
+
     def __init__(self):
-        """Initialize repository with database configuration."""
-        self.connection_string = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-            f"SERVER={os.getenv('SQLServer')};"
-            f"DATABASE={os.getenv('SQLDatabase')};"
-            f"UID={os.getenv('SQLUser')};"
-            f"PWD={os.getenv('SQLPassword')}"
-        )
+        """Initialize repository with database configuration.
+
+        Uses ``core.db.build_sqlserver_connection_string`` so LocalDB and
+        remote SQL Server are handled consistently with the rest of the
+        codebase.
+        """
+        self.connection_string = build_sqlserver_connection_string()
     
     @contextmanager
     def get_connection(self):

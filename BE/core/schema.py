@@ -8,6 +8,11 @@ import pyodbc
 import logging
 from typing import Tuple
 
+from core.db import (
+    build_master_connection_string,
+    build_sqlserver_connection_string,
+)
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -16,45 +21,13 @@ PHONE_E164_CHECK = f"LIKE '{PHONE_E164_PATTERN}'"
 
 
 def _build_connection_strings() -> Tuple[str, str]:
+    """Build connection strings for the ``master`` and target databases.
+
+    Delegates to :mod:`core.db` so the LocalDB/remote-auth logic lives in one
+    place. Returns ``(master_connection_string, target_connection_string)``.
     """
-    Build connection strings for master and target database.
-    
-    Returns:
-        Tuple of (master_connection_string, target_connection_string)
-    """
-    SQL_SERVER = os.getenv('SQLServer')
-    SQL_USER = os.getenv('SQLUser')
-    SQL_PASSWORD = os.getenv('SQLPassword')
-    SQL_DATABASE = os.getenv('SQLDatabase')
-    
-    if not SQL_SERVER:
-        raise ValueError("SQLServer environment variable is not set")
-    if not SQL_DATABASE:
-        raise ValueError("SQLDatabase environment variable is not set")
-    
-    is_localdb = "localdb" in SQL_SERVER.lower()
-    
-    if is_localdb:
-        # LocalDB: Use Windows Authentication
-        base_conn_str = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-            f"SERVER={SQL_SERVER};"
-            f"Trusted_Connection=yes;"
-        )
-    else:
-        # Remote servers: Use SQL Server authentication
-        if not SQL_USER or not SQL_PASSWORD:
-            raise ValueError("SQLUser and SQLPassword are required for remote SQL Server")
-        base_conn_str = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
-            f"SERVER={SQL_SERVER};"
-            f"UID={SQL_USER};"
-            f"PWD={SQL_PASSWORD}"
-        )
-    
-    master_conn_str = f"{base_conn_str}DATABASE=master;"
-    target_conn_str = f"{base_conn_str}DATABASE={SQL_DATABASE};"
-    
+    master_conn_str = build_master_connection_string()
+    target_conn_str = build_sqlserver_connection_string()
     return master_conn_str, target_conn_str
 
 

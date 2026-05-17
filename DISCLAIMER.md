@@ -47,8 +47,8 @@ Before using Outvox in production, you are responsible for:
 ## Known limitations
 
 Outvox has several known compliance-relevant limitations that you must
-mitigate before production use. See `docs/known-limitations.md` (or equivalent) for
-the current list. As of this writing, the limitations include but are not limited to:
+mitigate before production use. The current list includes, but is not limited
+to:
 
 - The bundled Do Not Call detector uses heuristic thresholds and may not register a
   single explicit opt-out phrase as DNC. Operators should implement stricter
