@@ -50,17 +50,36 @@ Outvox has several known compliance-relevant limitations that you must
 mitigate before production use. The current list includes, but is not limited
 to:
 
-- The bundled Do Not Call detector uses heuristic thresholds and may not register a
-  single explicit opt-out phrase as DNC. Operators should implement stricter
-  detection.
-- The system does not enforce a 24-hour STOP-honoring window in code; this must be
-  enforced operationally.
-- The system does not perform a 30-day quiet-period suppression after a STOP.
-- Calling-hour windows are configurable but default to a single hardcoded range; the
-  operator is responsible for enforcing per-recipient local time-zone restrictions.
-- The system does not validate consent timestamps, channel of consent, or audit-trail
-  retention.
-- The system does not perform DNC registry (federal or state) scrubs.
+- **Heuristic DNC detection.** The bundled Do Not Call detector uses sentiment
+  thresholds and a keyword list. A single explicit opt-out phrase may not be
+  registered as DNC. Operators should layer stricter detection and manual review
+  on top.
+- **No 24-hour STOP-honoring window in code.** The system marks a lead as
+  opted-out when a STOP reply is classified, but it does not enforce a maximum
+  time-to-honor in the SMS pipeline. Federal rules require cessation within
+  reasonable time periods that this software does not on its own guarantee.
+- **No 30-day quiet-period suppression after a STOP.** Re-engagement gating is
+  the operator's responsibility.
+- **Calling-hour window is hardcoded, SMS-only, and server-local.** The SMS
+  batch executor at `BE/workers/batch_executor.py` skips execution outside
+  **9 AM – 6 PM in the server's local time zone**. It is **not configurable**
+  by env var, **not based on the recipient's time zone**, and **does not apply
+  to voice calls** — voice calls fire whenever the operator triggers them. The
+  federal TCPA default is 8 AM – 9 PM in the recipient's local time zone, and
+  many states are stricter. Outvox does not implement per-recipient time-zone
+  resolution.
+- **No consent metadata validation.** The system does not validate consent
+  timestamps, channel of consent, or audit-trail retention.
+- **No DNC registry scrubs.** The system does not query the federal or any
+  state Do Not Call registry. Scrubbing is entirely the operator's
+  responsibility.
+- **No recording disclosure prompt.** When `ENABLE_CALL_RECORDING=true`, calls
+  are recorded but the bundled voice prompts do not announce recording. Add a
+  disclosure to your prompt before recording in two-party-consent
+  jurisdictions.
+- **Indefinite retention.** Call transcripts, recordings (URLs), and SMS
+  conversations are retained indefinitely in the schema. Implement a retention
+  policy appropriate to your jurisdiction and the consents you obtained.
 
 ## Not legal advice
 

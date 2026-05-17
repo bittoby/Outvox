@@ -211,11 +211,26 @@ class SecurityConfig:
     """
     API_KEY: str = os.getenv('API_KEY', '')
     # Comma-separated list of path prefixes that bypass auth even when API_KEY
-    # is set (e.g., Twilio webhooks that arrive with their own signature). The
-    # defaults below are safe: health checks plus Twilio webhook paths.
+    # is set (e.g., Twilio webhooks that arrive with their own signature, never
+    # with our shared secret). The defaults below cover:
+    #   - health probes (/health, /nginx-health)
+    #   - Twilio voice and SMS webhooks on the voice agent (/twilio-voice,
+    #     /twilio-sms) — these endpoints validate Twilio's X-Twilio-Signature
+    #     before doing anything else.
+    #   - Twilio SMS webhooks on db_service (/api/sms/twilio-sms and the
+    #     /sms/twilio-sms legacy redirect) for operators who configure Twilio
+    #     to call db_service directly.
+    #   - the media-stream WebSocket, which is HMAC-protected instead.
+    #   - the OpenAPI documentation routes.
     AUTH_EXEMPT_PREFIXES: str = os.getenv(
         'AUTH_EXEMPT_PREFIXES',
-        '/health,/nginx-health,/twilio-voice,/twilio-status,/api/sms/inbound,/media-stream,/docs,/redoc,/openapi.json'
+        (
+            '/health,/nginx-health,'
+            '/twilio-voice,/twilio-sms,'
+            '/sms/twilio-sms,/api/sms/twilio-sms,'
+            '/media-stream,'
+            '/docs,/redoc,/openapi.json'
+        )
     )
 
 
