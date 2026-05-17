@@ -96,7 +96,7 @@ class TrestleService:
         SQL_DATABASE = os.getenv('SQLDatabase')
         
         connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"UID={SQL_USER};"

@@ -19,7 +19,7 @@ def get_db_connection():
     """Establish database connection"""
     try:
         conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={config.database.SQL_SERVER};"
             f"DATABASE={config.database.SQL_DATABASE};"
             f"UID={config.database.SQL_USER};"

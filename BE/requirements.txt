@@ -29,4 +29,5 @@ uvicorn==0.30.6
 websockets==13.1
 yarl==1.12.1
 pyodbc==5.2.0
+asyncpg==0.30.0
 python-multipart==0.0.6

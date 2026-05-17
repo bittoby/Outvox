@@ -36,14 +36,14 @@ def get_db_connection():
     try:
         if SQL_SERVER and "localdb" in SQL_SERVER.lower():
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"Trusted_Connection=yes;"
             )
         else:
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"UID={SQL_USER};"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 Safe Call Popup Creator Worker
 
 Automatically creates popup cards for leads that are eligible for safe calling
@@ -61,12 +61,11 @@ BATCH_SIZE = 100  # Process up to 100 leads per run
 def get_db_connection():
     """Get SQL Server database connection."""
     connection_string = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
         f"SERVER={SQL_SERVER};"
         f"DATABASE={SQL_DATABASE};"
         f"UID={SQL_USER};"
         f"PWD={SQL_PASSWORD};"
-        f"TrustServerCertificate=yes;"
     )
     return pyodbc.connect(connection_string)
 
@@ -331,4 +330,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a focused improvement to Outvox.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or operator problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, API, UI, or workflow you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Frontend
+        - Twilio voice
+        - Twilio SMS
+        - OpenAI Realtime
+        - Database
+        - Documentation
+        - Compliance
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compliance or security impact
+      description: Note any consent, DNC, webhook, secret, auth, retention, or PII concerns.

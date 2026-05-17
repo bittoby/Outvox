@@ -58,11 +58,6 @@ const CampaignDashboardPage: React.FC = () => {
   const [batchLeads, setBatchLeads] = useState<any>(null);
   const [loadingBatchLeads, setLoadingBatchLeads] = useState(false);
 
-  // Load stores on mount
-  useEffect(() => {
-    loadStores();
-  }, []);
-
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -78,17 +73,22 @@ const CampaignDashboardPage: React.FC = () => {
     }
   }, [isDropdownOpen]);
 
-  const loadStores = async () => {
+  const loadStores = useCallback(async () => {
     try {
       const storesData = await getStores();
       setStores(storesData);
-      if (storesData.length > 0 && !selectedStoreId) {
-        setSelectedStoreId(storesData[0].store_id);
+      if (storesData.length > 0) {
+        setSelectedStoreId(current => current ?? storesData[0].store_id);
       }
     } catch (error) {
       console.error('Error loading stores:', error);
     }
-  };
+  }, []);
+
+  // Load stores on mount
+  useEffect(() => {
+    loadStores();
+  }, [loadStores]);
 
   const loadStoreData = useCallback(async (isRefresh: boolean = false) => {
     if (!selectedStoreId) return;
@@ -1132,4 +1132,3 @@ const CampaignDashboardPage: React.FC = () => {
 };
 
 export default CampaignDashboardPage;
-

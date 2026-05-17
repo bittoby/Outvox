@@ -89,7 +89,7 @@ const SMSPage: React.FC = () => {
       }
       setLastUpdate(new Date());
       toast.success('Data refreshed successfully');
-    } catch (error) {
+    } catch {
       toast.error('Failed to refresh data');
     } finally {
       setRefreshing(false);
@@ -329,7 +329,7 @@ const SMSPage: React.FC = () => {
         second: '2-digit',
         hour12: true
       });
-    } catch (error) {
+    } catch {
       return 'Invalid Date';
     }
   };

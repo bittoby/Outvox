@@ -5,956 +5,438 @@ Licensed under **Apache-2.0**.
 
 > ⚠️ **Read [`DISCLAIMER.md`](DISCLAIMER.md) and [`SECURITY.md`](SECURITY.md) before
 > placing real calls.** This software automates outbound voice calls and SMS;
-> TCPA, FCC, state-level mini-TCPA, CTIA, and carrier rules all apply.
-> The maintainers make **no claim of compliance**. You are the operator and
-> you carry the legal risk.
+> TCPA, FCC, state-level mini-TCPAs, CTIA, and carrier rules all apply. The
+> maintainers make **no claim of compliance**. You are the operator and you
+> carry the legal risk.
+
+Outvox is **early-stage software**. It works end-to-end, but there are known
+security, operational, and compliance hardening items documented in
+`SECURITY.md`. Do not deploy to the public internet without working through
+that file's hardening checklist.
 
 ---
 
-## 📋 Table of Contents
+## Contents
 
-1. [Overview](#overview)
-2. [System Architecture](#system-architecture)
-3. [Project Structure](#project-structure)
-4. [Core Features](#core-features)
-5. [Technology Stack](#technology-stack)
-6. [Quick Start](#quick-start)
-7. [API Reference](#api-reference)
-8. [Database Schema](#database-schema)
-9. [Configuration](#configuration)
-10. [Deployment](#deployment)
-
----
-
-## Overview
-
-A multi-agent AI voice calling and SMS campaign system built with FastAPI, OpenAI Realtime API, and Twilio. Supports 10 concurrent AI agents for high-volume outbound campaigns with TCPA compliance.
-
-### Key Capabilities
-
-- **AI Voice Calls:** OpenAI Realtime API-powered conversations
-- **SMS Campaigns:** Automated SMS with consent tracking & rate limiting
-- **Lead Management:** Import, assign, track, and manage leads
-- **DNC Compliance:** Automatic Do Not Call detection and management
-- **Multi-Agent:** 10 parallel voice agents with Nginx load balancing
-- **Analytics:** Real-time dashboards and call reporting
+1. [What it does](#what-it-does)
+2. [Architecture](#architecture)
+3. [Project layout](#project-layout)
+4. [Quick start](#quick-start)
+5. [Configuration](#configuration)
+6. [Running in Docker](#running-in-docker)
+7. [Credential-free demo](#credential-free-demo)
+8. [Command-line tooling](#command-line-tooling)
+9. [Testing](#testing)
+10. [Contributing](#contributing)
+11. [License](#license)
 
 ---
 
-## System Architecture
+## What it does
 
-### 3-Layer Clean Architecture
+Outvox places automated outbound calls and SMS messages on behalf of an
+operator — for example, a business reaching out to leads who have previously
+opted in. It bridges Twilio's Programmable Voice / Messaging with OpenAI's
+Realtime API so that each call is a live, two-way conversation rather than
+prerecorded audio.
 
-```
-┌─────────────────────────────────────────┐
-│  ROUTER LAYER (API Endpoints)           │
-│  - Handle HTTP requests/responses       │
-│  - Validate input with Pydantic         │
-│  - Call service layer                   │
-│  Files: routers/*.py                    │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│  SERVICE LAYER (Business Logic)         │
-│  - Implement business rules             │
-│  - Orchestrate operations               │
-│  - Handle exceptions                    │
-│  Files: services/*.py                   │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│  REPOSITORY LAYER (Data Access)         │
-│  - Execute SQL queries                  │
-│  - Manage connections                   │
-│  - Handle transactions                  │
-│  Files: repositories/*.py               │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-        ┌──────────────┐
-        │  SQL SERVER  │
-        └──────────────┘
-```
+Headline capabilities:
 
-### Multi-Agent Deployment
+- **AI voice calls** via OpenAI Realtime, streamed through Twilio Media
+  Streams.
+- **SMS campaigns** with template management, batch scheduling, rate limiting,
+  and YES/STOP reply tracking.
+- **Lead management**: CSV import/export, store routing, DNC flagging, SMS
+  consent state machine.
+- **Fleet model**: ten voice-agent containers behind an Nginx load balancer for
+  concurrent outbound calling.
+- **Operator dashboard**: React + TypeScript SPA for monitoring agents,
+  campaigns, conversations, and call results.
 
-```
-                    ┌────────────────┐
-                    │  React Frontend │
-                    │  (Port 3000)    │
-                    └────────┬────────┘
-                             │
-                             ▼
-┌────────────────────────────────────────────────────┐
-│              Database Service (Port 8000)          │
-│              - Lead Management                     │
-│              - SMS Campaigns                       │
-│              - Call Results                        │
-└────────────────────────┬───────────────────────────┘
-                         │
-                         ▼
-              ┌──────────────────┐
-              │  Nginx Load      │
-              │  Balancer        │
-              │  (Port 5100)     │
-              └────────┬──────────┘
-                       │
-        ┌──────────────┼──────────────┬───────────┐
-        │              │              │           │
-        ▼              ▼              ▼           ▼
-   ┌────────┐    ┌────────┐    ┌────────┐   ┌────────┐
-   │ OUT1   │    │ OUT2   │    │ OUT3   │...│ OUT10  │
-   │ 5101   │    │ 5102   │    │ 5103   │   │ 5110   │
-   └────────┘    └────────┘    └────────┘   └────────┘
-   Voice Agent   Voice Agent   Voice Agent   Voice Agent
-```
+Everything customer-facing — company name, agent persona, products mentioned,
+locations — is driven by environment variables. The repository ships
+deliberately generic defaults; see [Configuration](#configuration).
 
 ---
 
-## Project Structure
+## Architecture
+
+```mermaid
+flowchart TD
+    FE[React frontend<br/>Vite :3000] -->|HTTPS + X-API-Key| DB[FastAPI database service<br/>:8000]
+    DB -->|pyodbc| MSSQL[(SQL Server runtime)]
+    DB -. experimental schema path .-> PG[(Postgres)]
+    DB --> Workers[Background workers]
+    DB --> WS[WebSocket fan-out]
+    Twilio[Twilio webhooks] --> Nginx[Nginx load balancer<br/>:5100]
+    Nginx --> A1[Voice agent 1]
+    Nginx --> A2[Voice agent 2]
+    Nginx --> A3[Voice agent ...]
+    Nginx --> A10[Voice agent 10]
+    A1 -->|HTTP| DB
+    A2 -->|HTTP| DB
+    A3 -->|HTTP| DB
+    A10 -->|HTTP| DB
+    A1 <-->|Realtime media| OpenAI[OpenAI Realtime]
+    A2 <-->|Realtime media| OpenAI
+    A3 <-->|Realtime media| OpenAI
+    A10 <-->|Realtime media| OpenAI
+```
+
+The voice-agent containers do **not** talk to the database directly. They call
+the central `db_service` over HTTP, so the database driver is only loaded in
+one place.
+
+SQL Server is the supported runtime backend for `v0.1.x`. A Postgres schema
+bootstrap path exists for migration work, but the repository query layer still
+contains SQL Server-specific SQL in places. Treat full Postgres runtime
+compatibility as active migration work, not complete.
+
+---
+
+## Project layout
 
 ```
-OutboundAgent/
+Outvox/
+├── BE/                                Backend (FastAPI, Python 3.11+)
+│   ├── core/                          Cross-cutting infrastructure
+│   │   ├── auth.py                    API-key middleware
+│   │   ├── error_handler.py           Global exception handlers
+│   │   ├── exceptions.py              Custom HTTP exception types
+│   │   ├── logging_config.py          Logging setup
+│   │   ├── responses.py               JSON response helpers
+│   │   └── schema.py                  Postgres + SQL Server table creation
+│   ├── models/                        Pydantic request/response models
+│   ├── repositories/                  Data-access layer
+│   ├── services/                      Business logic
+│   ├── routers/                       FastAPI routers (HTTP + WebSocket)
+│   ├── utils/                         Detectors, parsers, prompt loader,
+│   │                                  location mapper, phone validator
+│   ├── workers/                       Background jobs (batch executor,
+│   │                                  daily reporter, phone-stats reset,
+│   │                                  safe-call popup creator)
+│   ├── prompts/                       AI prompt fixtures (use {company_name}
+│   │                                  and {agent_name} placeholders)
+│   ├── scripts/                       Operator scripts (setup, cleanup, CLI)
+│   │   ├── call_manager.py
+│   │   ├── setup_outbound.py
+│   │   ├── setup_stores.py
+│   │   ├── setup_templates.py
+│   │   ├── delete_all_tables.py
+│   │   └── logs.bat
+│   ├── config.py                      Centralised configuration
+│   ├── db_service.py                  Database service entry point (:8000)
+│   ├── outbound_main.py               Voice-agent entry point (:5001)
+│   ├── requirements.txt               Python dependencies (pinned)
+│   ├── env.example                    Example env file — copy to .env
+│   ├── docker-compose.yml             10 agents + Nginx
+│   ├── Dockerfile
+│   └── nginx.conf
 │
-├── BE/                            Backend (FastAPI)
-│   │
-│   ├── core/                      Infrastructure Layer
-│   │   ├── exceptions.py         Custom HTTP exceptions
-│   │   ├── responses.py          API response helpers
-│   │   ├── schema.py             Database schema creation
-│   │   └── logging_config.py     Logging setup
-│   │
-│   ├── models/                    Data Models (Pydantic)
-│   │   ├── lead.py               Lead models (Create, Update, Response)
-│   │   ├── campaign.py           Campaign models
-│   │   ├── call.py               Call models
-│   │   ├── store.py              Store models
-│   │   └── sms.py                SMS models
-│   │
-│   ├── repositories/              Data Access Layer
-│   │   ├── base.py               Base repository with common operations
-│   │   └── lead_repository.py    Lead-specific database queries
-│   │
-│   ├── services/                  Business Logic Layer
-│   │   ├── lead_service.py       Lead management logic
-│   │   ├── sms_campaign_manager.py  SMS campaign orchestration
-│   │   └── consent_tracker.py    Consent tracking logic
-│   │
-│   ├── routers/                   API Endpoints
-│   │   ├── leads.py              Lead management (11 endpoints)
-│   │   ├── campaigns.py          SMS campaigns (10 endpoints)
-│   │   ├── calls.py              Call history (8 endpoints)
-│   │   ├── stores.py             Store management (5 endpoints)
-│   │   ├── sms.py                SMS conversations (6 endpoints)
-│   │   ├── phone_numbers.py      Phone number mgmt (11 endpoints)
-│   │   └── popup.py              Popup queue (6 endpoints)
-│   │
-│   ├── utils/                     Utility Functions
-│   │   ├── phone_validator.py    Phone number validation (E.164)
-│   │   ├── location_mapper.py    Area code to store mapping
-│   │   ├── prompt_loader.py      AI prompt management
-│   │   ├── dnc_detector.py       DNC phrase detection
-│   │   ├── call_result_detector.py  Call outcome detection
-│   │   ├── csv_parser.py         CSV import/export
-│   │   ├── template_renderer.py  SMS template rendering
-│   │   ├── phone_pool_manager.py Phone number rotation
-│   │   └── language_validator.py Language detection
-│   │
-│   ├── workers/                   Background Jobs
-│   │   ├── batch_executor.py     SMS batch execution
-│   │   ├── daily_reporter.py     Daily reports
-│   │   ├── reset_phone_stats.py  Phone usage reset
-│   │   └── safe_call_eligibility.py  Call window checker
-│   │
-│   ├── migrations/                Database Migrations
-│   │   ├── 001_sms_campaign_schema.py
-│   │   ├── 002_batch_lead_mapping.py
-│   │   └── 003_sms_replies_table.py
-│   │
-│   ├── prompts/                   AI Prompts
-│   │   ├── base_prompt.txt       Base AI system prompt
-│   │   ├── greeting_variations.json  Greeting templates
-│   │   └── training_examples.json    Training examples
-│   │
-│   ├── scripts/                   CLI & Setup Scripts
-│   │   ├── call_manager.py        CLI management tool
-│   │   ├── setup_outbound.py      Initial setup script
-│   │   ├── setup_stores.py        Store setup script
-│   │   ├── setup_templates.py     SMS template setup
-│   │   └── delete_all_tables.py   Database cleanup script
-│   │
-│   ├── db_service.py              Main database service (Port 8000)
-│   ├── outbound_main.py           Voice agent service (Ports 5101-5110)
-│   ├── config.py                  Configuration management
-│   ├── docker-compose.yml         Docker orchestration
-│   ├── Dockerfile                 Container definition
-│   ├── nginx.conf                 Load balancer config
-│   ├── requirements.txt           Python dependencies
-│   └── env.template               Environment template
-│
-├── FE/                            Frontend (React + TypeScript)
+├── FE/                                Frontend (React 18 + TypeScript + Vite)
 │   ├── src/
-│   │   ├── pages/                UI Pages
-│   │   │   ├── DashboardPage.tsx     Main dashboard
-│   │   │   ├── LeadsPage.tsx         Lead management
-│   │   │   ├── CampaignDashboardPage.tsx  Campaign dashboard
-│   │   │   ├── SMSPage.tsx           SMS conversations
-│   │   │   ├── AnalyticsPage.tsx     Analytics & reports
-│   │   │   ├── AgentsPage.tsx        Agent health
-│   │   │   ├── PopupPage.tsx         Manual dialing
-│   │   │   └── ...
-│   │   │
-│   │   ├── components/           Reusable Components
-│   │   │   ├── KPICard/          Dashboard KPI cards
-│   │   │   ├── AgentCard/        Agent status cards
-│   │   │   ├── CampaignPreviewModal/  Campaign preview
-│   │   │   └── ...
-│   │   │
-│   │   ├── services/api/         API Client
-│   │   │   ├── leads.ts
-│   │   │   ├── campaigns.ts
-│   │   │   ├── sms.ts
-│   │   │   └── ...
-│   │   │
-│   │   ├── types/                TypeScript Types
-│   │   │   ├── lead.ts
-│   │   │   ├── campaign.ts
-│   │   │   └── ...
-│   │   │
-│   │   └── routes/               Routing
-│   │       └── AppRoutes.tsx
-│   │
-│   ├── package.json              Dependencies
-│   ├── vite.config.ts            Vite configuration
-│   └── tailwind.config.js        Tailwind CSS config
+│   │   ├── pages/                     Dashboard, Leads, Campaigns, SMS, etc.
+│   │   ├── components/
+│   │   ├── hooks/
+│   │   ├── layouts/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   │   ├── api/                   Axios-based REST clients
+│   │   │   ├── websocket/             WS client
+│   │   │   └── authBootstrap.ts       Installs X-API-Key on axios
+│   │   └── types/                     Shared TS types
+│   ├── env.example
+│   ├── package.json
+│   └── vite.config.ts
 │
-└── memory/                        Design Documentation
-    ├── design/                    Design documents
-    └── milestones/                Milestone tracking
+├── tests/                             Pytest test suite (BE)
+├── LICENSE                            Apache-2.0
+├── NOTICE
+├── DISCLAIMER.md                      Legal / TCPA / operator responsibilities
+├── SECURITY.md                        Disclosure channel + hardening checklist
+├── CONTRIBUTING.md                    How to contribute
+├── CODE_OF_CONDUCT.md                 Contributor Covenant
+└── README.md                          You are here
 ```
 
 ---
 
-## Core Features
-
-### 1. Lead Management
-
-**Import & Export**
-- CSV import with validation
-- Bulk operations (assign to store, mark DNC)
-- Export to CSV
-
-**Lead Tracking**
-- Call history and results
-- DNC status management
-- SMS consent tracking
-- Priority-based calling
-
-**Endpoints:** `/leads/*`
-
----
-
-### 2. SMS Campaigns
-
-**Campaign Management**
-- Preview before sending
-- Batch scheduling (25 leads per batch, 25min intervals)
-- Template-based messages with variables
-- Rate limiting for carrier compliance
-
-**Consent Tracking**
-- Automatic consent request
-- Reply tracking (YES/NO detection)
-- TCPA compliance
-- Opt-out handling
-
-**Endpoints:** `/api/campaigns/*`, `/sms/*`
-
----
-
-### 3. AI Voice Calling
-
-**Features**
-- OpenAI Realtime API integration
-- Natural conversation flow
-- Real-time transcription
-- DNC phrase detection ("remove me", "stop calling")
-- Multi-language support
-
-**Calling Modes**
-- Single call
-- Sequential campaign
-- Parallel distributed calls (across 10 agents)
-
-**Endpoints:** `/start-calling`, `/media-stream` (WebSocket)
-
----
-
-### 4. Phone Number Management
-
-**Twilio Integration**
-- Phone number rotation
-- Usage tracking (calls per day/month)
-- Store assignment
-- Cooldown management
-
-**Endpoints:** `/api/phone-numbers/*`
-
----
-
-### 5. Analytics & Reporting
-
-**Dashboard Metrics**
-- Total calls, successful, failed
-- SMS campaign progress
-- Agent health status
-- Conversion rates
-
-**Call Details**
-- Full transcripts
-- Call duration
-- Result classification (answered, no-answer, voicemail, etc.)
-- Recording playback
-
-**Endpoints:** `/api/calls/*`, `/api/dashboard/*`
-
----
-
-## Technology Stack
-
-### Backend
-- **FastAPI** - Modern Python web framework
-- **Python 3.11+** - Programming language
-- **pyodbc** - SQL Server connectivity
-- **Pydantic** - Data validation
-- **Twilio API** - Voice & SMS
-- **OpenAI Realtime API** - AI conversations
-- **Nginx** - Load balancing
-- **Docker** - Containerization
-
-### Frontend
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool
-- **Axios** - HTTP client
-- **Zustand** - State management
-- **Tailwind CSS** - Styling
-- **React Router** - Navigation
-
-### Database
-- **SQL Server** - Primary database
-- **Tables:** OutboundLeads, TwilioNumbers, OutboundCallResults, sms_campaigns, sms_batches, batch_lead_mapping, sms_replies, sms_photo_submissions
-
----
-
-## Quick Start
+## Quick start
 
 ### Prerequisites
 
+- Python 3.11 or newer
+- Node.js 18 or newer
+- Microsoft SQL Server 2019 or newer
+- Microsoft ODBC Driver 18 for SQL Server and `unixodbc-dev` on Linux
+- Postgres 16 or newer only if you are working on the experimental migration
+- Docker (only if you want to run the multi-agent fleet)
+- A Twilio account with a Voice/SMS-capable phone number
+- An OpenAI API key with Realtime API access
+- For inbound Twilio webhooks: a public tunnel such as ngrok
+
+### 1. Clone and install
+
 ```bash
-# Required
-- Python 3.11+
-- Node.js 18+
-- SQL Server
-- Docker Desktop
-- Twilio Account
-- OpenAI API Key
-```
+git clone https://github.com/bittoby/Outvox.git
+cd Outvox
 
-### 1. Clone & Setup
-
-```bash
-# Clone repository
-git clone <repo-url>
-cd OutboundAgent
-
-# Backend setup
+# Backend
 cd BE
-copy env.template .env
-# Edit .env with your credentials
-
-# Install Python dependencies
+cp env.example .env                  # edit with your credentials, see below
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Run database migrations
-python migrations/001_sms_campaign_schema.py
-python migrations/002_batch_lead_mapping.py
-python migrations/003_sms_replies_table.py
-
-# Setup stores and templates
-python setup_stores.py
-python setup_templates.py
-
-# Assign phone numbers to stores (via API or Frontend UI)
-# API: PUT /api/phone-numbers/{phone_number_id}/assign-store
-# Or use the Phone Numbers page in the frontend
-
-# Frontend setup
+# Frontend
 cd ../FE
+cp env.example .env                  # edit if backend isn't on localhost
 npm install
 ```
 
-### 2. Configure Environment
+### 2. Bring up SQL Server
 
-**BE/.env:**
+Outvox creates its own tables on first start; you just need a reachable
+SQL Server database that the configured user can write to. For local
+development with Docker:
+
+```bash
+docker run --name outvox-sqlserver \
+  -e ACCEPT_EULA=Y \
+  -e MSSQL_SA_PASSWORD='YourStrong!Passw0rd' \
+  -p 1433:1433 \
+  -d mcr.microsoft.com/mssql/server:2022-latest
+
+docker exec outvox-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'YourStrong!Passw0rd' -C \
+  -Q "CREATE DATABASE outvox"
+```
+
+Create an `outvox` database, then set these values in `BE/.env`:
+
 ```env
-# OpenAI
-OPENAI_API_KEY=sk-...
-REALTIME_MODEL=gpt-4o-realtime-preview-2024-12-17
-
-# Twilio
-TWILIO_ACCOUNT_SID=AC...
-TWILIO_AUTH_TOKEN=...
-
-# SQL Server
-SQLServer=localhost
-SQLDatabase=YourDB
+DATABASE_BACKEND=sqlserver
+SQLServer=localhost,1433
+SQLDatabase=outvox
 SQLUser=sa
-SQLPassword=YourPassword
-
-# Server
-AGENT_PORT=5101
-AGENT_ID=OUT1
-
-# Authentication (REQUIRED for any non-localhost deployment — see SECURITY.md)
-API_KEY=use-python-secrets-token_urlsafe-48
-
-# Brand / Tenant (controls every customer-facing string)
-COMPANY_NAME=Acme Pawn
-COMPANY_SHORT_NAME=Acme
-AGENT_NAME=Alex
-COMPANY_TAGLINE=Trusted local pawn loans and appraisals.
-COMPANY_OFFERING=pawn loans and quick cash for gold, jewelry, watches, and electronics
+SQLPassword=YourStrong!Passw0rd
 ```
 
-The frontend reads the same API key from `FE/.env` as `VITE_API_KEY`. See
-[`SECURITY.md`](SECURITY.md) for the full hardening checklist.
+> The Postgres schema path is asyncpg-based and experimental. Several
+> repository queries still use SQL Server syntax. Use
+> `DATABASE_BACKEND=sqlserver` for the complete runtime path today.
 
-### 3. Start Services
+### 3. Start the services
 
-**Option A: All-in-One**
+In three terminals, with `BE/.venv` activated in the first two:
+
 ```bash
-cd BE
-python start_system.bat  # Windows
-```
-
-**Option B: Manual**
-```bash
-# Terminal 1: Database Service
+# Terminal 1 — database service (port 8000)
 cd BE
 python db_service.py
 
-# Terminal 2: Voice Agents (Docker)
+# Terminal 2 — a single voice agent (port 5001)
 cd BE
-docker-compose up -d
+AGENT_ID=OUT1 PORT=5001 python outbound_main.py
 
-# Terminal 3: Frontend
+# Terminal 3 — frontend (port 3000)
 cd FE
 npm run dev
 ```
 
-### 4. Access Application
+For the production fleet (10 agents + Nginx), see
+[Running in Docker](#running-in-docker).
 
-- **Frontend:** http://localhost:3000
-- **Database API:** http://localhost:8000
-- **Voice Load Balancer:** http://localhost:5100
-- **API Docs:** http://localhost:8000/docs
+### 4. Seed sample data (optional)
 
----
-
-## API Reference
-
-### Lead Management
-
-```python
-# Get all leads
-GET /leads/?limit=100&offset=0&dnc_only=false
-
-# Get next lead to call
-GET /leads/next
-
-# Create lead
-POST /leads/
-{
-  "phone_number": "+15551234567",
-  "name": "John Doe",
-  "City": "Kansas City",
-  "State": "MO",
-  "priority": 1,
-  "store_id": 1
-}
-
-# Update lead
-POST /leads/{lead_id}/update
-{
-  "name": "Jane Doe",
-  "priority": 2
-}
-
-# Mark as called
-POST /leads/{lead_id}/mark-called
-
-# Mark as DNC
-POST /leads/mark-dnc
-{
-  "phone_number": "+15551234567"
-}
-
-# Import CSV
-POST /api/leads/import-csv
-Content-Type: multipart/form-data
-
-# Export CSV
-GET /api/leads/export-csv
+```bash
+cd BE
+python scripts/setup_stores.py        # creates three sample stores
+python scripts/setup_templates.py     # creates 15 carrier-safe SMS templates
+python scripts/setup_outbound.py      # edit the script to register your
+                                       # Twilio numbers before running
 ```
 
-### SMS Campaigns
+### 5. Open the dashboard
 
-```python
-# Preview campaign
-POST /api/campaigns/preview
-{
-  "store_id": 1,
-  "template_id": 1,
-  "filter_dnc": true,
-  "filter_verified": false
-}
+- Dashboard: <http://localhost:3000>
+- Database API + Swagger: <http://localhost:8000/docs>
+- Voice load balancer (when Docker fleet is up): <http://localhost:5100>
 
-# Start campaign
-POST /api/campaigns/start
-{
-  "store_id": 1,
-  "template_id": 1,
-  "filter_dnc": true,
-  "batch_size": 25,
-  "batch_interval_minutes": 25
-}
-
-# Pause campaign
-POST /api/campaigns/{campaign_id}/pause
-
-# Resume campaign
-POST /api/campaigns/{campaign_id}/resume
-
-# Get campaign status
-GET /api/campaigns/{campaign_id}
-
-# List campaigns
-GET /api/campaigns/
-```
-
-### Voice Calling
-
-```python
-# Start single call
-POST /start-calling
-{
-  "agent_url": "http://localhost:5101",
-  "lead_id": 123
-}
-
-# Media stream (WebSocket)
-WS /media-stream
-
-# Multi-call campaign
-POST /api/campaigns/multi-call
-{
-  "count": 10
-}
-```
-
-### Call Results
-
-```python
-# Get call history
-GET /api/calls/history?limit=50&offset=0
-
-# Get call details
-GET /api/calls/{call_id}
-
-# Save call result
-POST /api/calls/save-result
-{
-  "call_id": "abc123",
-  "lead_id": 123,
-  "result_type": "answered",
-  "duration_seconds": 120,
-  "transcript": "...",
-  "recording_url": "https://..."
-}
-```
-
-### SMS Conversations
-
-```python
-# Get conversations
-GET /sms/conversations
-
-# Get conversation details
-GET /sms/conversations/{phone_number}
-
-# Handle inbound SMS (Twilio webhook)
-POST /api/sms/inbound
-
-# Photo submissions
-GET /sms/photo-submissions
-```
-
----
-
-## Database Schema
-
-### Core Tables
-
-#### OutboundLeads
-```sql
-CREATE TABLE OutboundLeads (
-    lead_id INT PRIMARY KEY IDENTITY,
-    name NVARCHAR(255),
-    Address NVARCHAR(500),
-    City NVARCHAR(100),
-    County NVARCHAR(100),
-    State NVARCHAR(50),
-    Zip NVARCHAR(20),
-    phone_number NVARCHAR(20) UNIQUE NOT NULL,
-    priority INT DEFAULT 1,
-    call_count INT DEFAULT 0,
-    dnc_flag BIT DEFAULT 0,
-    sms_verified BIT DEFAULT 0,
-    sms_verified_at DATETIME,
-    sms_consent_requested_at DATETIME,
-    created_at DATETIME DEFAULT GETDATE(),
-    last_called DATETIME,
-    store_id INT,
-    result_type NVARCHAR(50),
-    skip_consent_sms BIT DEFAULT 0
-)
-```
-
-#### TwilioNumbers
-```sql
-CREATE TABLE TwilioNumbers (
-    phone_id INT PRIMARY KEY IDENTITY,
-    phone_number NVARCHAR(20) UNIQUE NOT NULL,
-    friendly_name NVARCHAR(100),
-    is_active BIT DEFAULT 1,
-    last_used DATETIME,
-    calls_today INT DEFAULT 0,
-    calls_this_month INT DEFAULT 0,
-    store_id INT,
-    assigned_at DATETIME,
-    created_at DATETIME DEFAULT GETDATE()
-)
-```
-
-#### OutboundCallResults
-```sql
-CREATE TABLE OutboundCallResults (
-    result_id INT PRIMARY KEY IDENTITY,
-    call_id NVARCHAR(100) UNIQUE,
-    lead_id INT,
-    agent_id NVARCHAR(50),
-    from_number NVARCHAR(20),
-    to_number NVARCHAR(20),
-    call_status NVARCHAR(50),
-    result_type NVARCHAR(50),
-    duration_seconds INT,
-    transcript NVARCHAR(MAX),
-    recording_url NVARCHAR(500),
-    dnc_detected BIT DEFAULT 0,
-    created_at DATETIME DEFAULT GETDATE()
-)
-```
-
-#### sms_campaigns
-```sql
-CREATE TABLE sms_campaigns (
-    campaign_id INT PRIMARY KEY IDENTITY,
-    campaign_name NVARCHAR(255),
-    store_id INT,
-    template_id INT,
-    total_leads INT,
-    status NVARCHAR(50) DEFAULT 'pending',
-    scheduled_at DATETIME,
-    started_at DATETIME,
-    completed_at DATETIME,
-    created_at DATETIME DEFAULT GETDATE()
-)
-```
-
-#### sms_batches
-```sql
-CREATE TABLE sms_batches (
-    batch_id INT PRIMARY KEY IDENTITY,
-    campaign_id INT,
-    batch_number INT,
-    scheduled_time DATETIME,
-    status NVARCHAR(50) DEFAULT 'pending',
-    sent_count INT DEFAULT 0,
-    failed_count INT DEFAULT 0,
-    started_at DATETIME,
-    completed_at DATETIME
-)
-```
+If your backend has `API_KEY` set, the dashboard will be rejected with 401s
+until you either set `VITE_API_KEY` in `FE/.env` and rebuild, or run
+`setApiKey("…")` from the browser console (the key is persisted in
+`localStorage` under `outvox.api_key`).
 
 ---
 
 ## Configuration
 
-### Configuration Management
+All backend configuration lives in `BE/config.py` and is loaded from
+environment variables (`.env`). The full inventory is in `BE/env.example` —
+the highlights:
 
-All configuration is centralized in `BE/config.py`:
+```env
+# ── Authentication ──────────────────────────────────────────────
+# Random shared secret used to gate mutating routes. Generate with:
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
+# If unset, services log a warning and accept all requests. DO NOT
+# leave unset on any internet-reachable deployment.
+API_KEY=
 
-```python
-from config import CallConfig, OpenAIConfig, TwilioConfig
+# ── Brand / tenant strings (every customer-facing word) ─────────
+COMPANY_NAME=Acme Pawn
+COMPANY_SHORT_NAME=Acme
+AGENT_NAME=Alex
+COMPANY_TAGLINE=Trusted local pawn loans and appraisals.
+COMPANY_OFFERING=pawn loans and quick cash for gold, jewelry, watches, and electronics
 
-# Access configuration
-call_config = CallConfig()
-openai_config = OpenAIConfig()
-twilio_config = TwilioConfig()
+# ── OpenAI Realtime ─────────────────────────────────────────────
+OPENAI_API_KEY=sk-...
+REALTIME_MODEL=gpt-realtime-2025-08-28
+VOICE_SELECTION=sage
+
+# ── Twilio ──────────────────────────────────────────────────────
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=
+NGROK_HOST=your-subdomain.ngrok.app
+PUBLIC_WEBHOOK_BASE_URL=https://your-subdomain.ngrok.app
+TWILIO_VALIDATE_SIGNATURE=true
+MEDIA_STREAM_VALIDATE_TOKEN=true
+
+# ── Database ────────────────────────────────────────────────────
+DATABASE_BACKEND=sqlserver
+SQLServer=localhost,1433
+SQLDatabase=outvox
+SQLUser=sa
+SQLPassword=YourStrongPassword
+
+# Experimental Postgres migration path:
+# DATABASE_BACKEND=postgres
+# DATABASE_URL=postgresql://outvox:outvox@localhost:5432/outvox
+
+# ── Agent identity ──────────────────────────────────────────────
+AGENT_ID=OUT1
+PORT=5001
 ```
 
-### Environment Variables
-
-**Required:**
-- `OPENAI_API_KEY` - OpenAI API key
-- `TWILIO_ACCOUNT_SID` - Twilio account SID
-- `TWILIO_AUTH_TOKEN` - Twilio auth token
-- `SQLServer` - SQL Server hostname
-- `SQLDatabase` - Database name
-- `SQLUser` - SQL username
-- `SQLPassword` - SQL password
-
-**Optional:**
-- `AGENT_PORT` - Voice agent port (default: 5101)
-- `AGENT_ID` - Agent identifier (default: OUT1)
-- `REALTIME_MODEL` - OpenAI model (default: gpt-4o-realtime-preview-2024-12-17)
+The frontend reads the same API key from `FE/.env` as `VITE_API_KEY`. See
+[`SECURITY.md`](SECURITY.md) for the full hardening checklist and
+[`DISCLAIMER.md`](DISCLAIMER.md) for compliance gaps you must close.
 
 ---
 
-## Deployment
+## Running in Docker
 
-### Docker Deployment
-
-**Build and start:**
 ```bash
 cd BE
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-**Scale agents:**
-```bash
-docker-compose up -d --scale outvox-agent=10
-```
+This brings up ten voice-agent containers (`outvox-agent1` through
+`outvox-agent10`) on ports `5101`–`5110`, behind an Nginx load balancer on
+`:5100`. The compose file does **not** start `db_service` — run it on the
+host (or add a service of your own). The agents reach the host via
+`host.docker.internal:8000`.
 
-**View logs:**
-```bash
-docker-compose logs -f
-```
-
-**Stop all:**
-```bash
-docker-compose down
-```
-
-### Production Checklist
-
-- [ ] Set all environment variables in `.env`
-- [ ] Run database migrations
-- [ ] Set up SSL certificates
-- [ ] Configure Twilio webhooks
-- [ ] Set up monitoring (logging, health checks)
-- [ ] Configure backup strategy
-- [ ] Test failover scenarios
-- [ ] Set up rate limiting
-- [ ] Review TCPA compliance settings
-
----
-
-## Management Commands
-
-### Call Manager CLI
+Logs:
 
 ```bash
-# Health checks
-python call_manager.py health        # Check all agents
-python call_manager.py stats         # Show statistics
-
-# Single operations
-python call_manager.py single-call   # Make one call
-
-# Campaigns
-python call_manager.py campaign 100  # Sequential campaign
-python call_manager.py multi-call 50 # Distributed campaign
-
-# Lead management
-python call_manager.py add-lead +15551234567 "John Doe" "Store 1" 1
-python call_manager.py mark-dnc +15551234567
-
-# Phone number management
-python call_manager.py list-numbers
-python call_manager.py assign-number +15551234567 1
+docker compose logs -f                 # everything
+docker compose logs -f outvox-agent1   # one agent
+docker logs outvox-nginx -f            # load balancer
 ```
 
-### Batch Execution
+Stop:
 
 ```bash
-# Batch execution is handled automatically by the worker
-# Run worker in daemon mode (continuous polling)
-python BE/workers/batch_executor.py --daemon
-
-# Or run once (manual execution)
-python BE/workers/batch_executor.py
-
-# View batch details via API
-GET /api/campaigns/{campaign_id}/batches
+docker compose down
 ```
 
 ---
 
-## Best Practices
+## Credential-free demo
 
-### Code Organization
-
-1. **Routers** - Handle HTTP only, no business logic
-2. **Services** - Implement business rules, orchestrate operations
-3. **Repositories** - Database access only, no business logic
-4. **Models** - Pydantic models for validation
-5. **Utils** - Reusable helper functions
-
-### Error Handling
-
-```python
-# Use custom exceptions
-from core.exceptions import ResourceNotFoundError, ValidationError
-
-# In services
-if not lead:
-    raise ResourceNotFoundError("Lead", lead_id)
-
-# In routers
-try:
-    return service.create_lead(data)
-except ValidationError as e:
-    raise HTTPException(400, e.message)
-```
-
-### Testing
-
-```python
-# Unit tests (services)
-def test_create_lead_duplicate():
-    service = LeadService()
-    service.repository = Mock()
-    service.repository.exists_by_phone.return_value = True
-    
-    with pytest.raises(ValidationError):
-        service.create_lead({"phone_number": "+15551234567"})
-
-# Integration tests (repositories)
-def test_repository_create():
-    repo = LeadRepository()
-    lead_id = repo.create({"phone_number": "+15551234567"})
-    assert lead_id > 0
-
-# API tests (endpoints)
-def test_api_create_lead():
-    client = TestClient(app)
-    response = client.post("/leads/", json={...})
-    assert response.status_code == 200
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-**1. Database Connection Failed**
-```
-Solution: Check SQL Server credentials in .env
-Verify SQL Server is running and accessible
-Check firewall settings
-```
-
-**2. Docker Agents Not Starting**
-```
-Solution: Check port availability (5101-5110)
-Review docker-compose logs
-Verify Docker Desktop is running
-```
-
-**3. Twilio Webhooks Not Working**
-```
-Solution: Ensure public URL is accessible
-Check Twilio webhook configuration
-Verify auth token in .env
-```
-
-**4. OpenAI API Errors**
-```
-Solution: Verify API key in .env
-Check API quota and billing
-Ensure correct model name
-```
-
-### Logs
+You can boot a local demo stack without real Twilio or OpenAI credentials:
 
 ```bash
-# Backend logs
-tail -f BE/logs/app.log
-
-# Docker logs
-docker-compose logs -f
-
-# Specific agent logs
-docker logs outvox-agent1 -f
+docker compose -f docker-compose.demo.yml up --build
 ```
 
----
+It starts:
 
-## Support & Resources
+- Postgres on `localhost:5432`
+- Mock API on <http://localhost:8000>
+- Fake OpenAI endpoint on <http://localhost:8081>
+- Fake Twilio endpoint on <http://localhost:8082>
+- Demo UI on <http://localhost:3000>
 
-### Documentation Locations
-- **This File:** Complete project documentation
-- **memory/design/:** Feature design documents
-- **memory/milestones/:** Milestone tracking
-
-### API Documentation
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
-
-### Key Contacts
-- Technical issues: Review code comments
-- Feature requests: Create issues in repository
+This stack proves first-run wiring and documentation, but it does not place
+real calls or exercise every production route.
 
 ---
 
-## License & Compliance
+## Command-line tooling
 
-### TCPA Compliance
-- Consent tracking before SMS
-- Opt-out handling
-- Do Not Call list management
-- Call time restrictions (8am-9pm)
-- Rate limiting to avoid spam
+The `BE/scripts/call_manager.py` script is a small operator CLI that hits the
+running services.
 
-### Data Privacy
-- Secure credential storage
-- SQL injection prevention (parameterized queries)
-- Input validation (Pydantic models)
-- HTTPS for production
+```bash
+cd BE
+python scripts/call_manager.py stats           # daily call statistics
+python scripts/call_manager.py health          # health of all agents + LB
+python scripts/call_manager.py single-call     # place one call
+python scripts/call_manager.py campaign 100    # parallel campaign of 100
+python scripts/call_manager.py add-lead +15551234567 "Jane Doe"
+python scripts/call_manager.py mark-dnc +15551234567
+python scripts/call_manager.py send-consent <lead_id> [--force]
+python scripts/call_manager.py consent-batch [limit] [--force]
+```
+
+The SMS batch worker can run as a daemon:
+
+```bash
+cd BE
+python workers/batch_executor.py --daemon    # continuous polling
+python workers/batch_executor.py             # one-shot run
+```
+
+The worker is normally started automatically by `db_service.py` on boot via
+`services/worker_manager.py`; you only need to run it standalone when
+debugging.
 
 ---
 
-**System Status:** ✅ Production Ready  
-**Architecture:** 3-Layer (Router → Service → Repository)  
-**All Functions:** ✅ Working Correctly  
-**Code Quality:** ✅ Clean, Structured, Professional
+## Testing
+
+Test dependencies are not in `requirements.txt`; install them separately:
+
+```bash
+pip install -r BE/requirements.txt
+pip install -r tests/requirements.txt
+PYTHONPATH=BE pytest
+```
+
+The test suite is intentionally small for now — smoke coverage on the
+detectors, validators, prompt loader, and template renderer. Contributions
+that fill in service-level and integration tests are very welcome.
 
 ---
 
-*Last Updated: November 15, 2025*
+## Contributing
 
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). In short: open an issue first for
+anything non-trivial, run `pytest` before submitting, follow the existing 3-
+layer pattern (routers → services → repositories), and never reintroduce
+hard-coded tenant data.
+
+By participating you agree to the [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+Security reports go through the channel in [`SECURITY.md`](SECURITY.md), not
+public issues.
+
+---
+
+## License
+
+Outvox is released under the Apache License, Version 2.0. See
+[`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

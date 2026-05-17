@@ -84,7 +84,7 @@ class SMSCampaignManager:
     def __init__(self):
         """Initialize the campaign manager."""
         self.connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"UID={SQL_USER};"
@@ -777,6 +777,7 @@ class SMSCampaignManager:
                 raise ValueError(f"No available phone numbers with SMS webhook configured for store_id={store_id}. All numbers at capacity, on cooldown, or missing webhook.")
             
             print(f"[Batch Executor] Found {len(available_numbers)} available number(s) with webhook configured for store_id={store_id}")
+            webhook_number_ids = [number['number_id'] for number in available_numbers]
             
             # Update batch status to executing (we'll update twilio_number_id per lead)
             cursor.execute("""
@@ -862,20 +863,19 @@ class SMSCampaignManager:
                 lead_city = lead_row[3] or ""
                 lead_state = lead_row[4] or ""
                 
-                # Filter available numbers: Exclude numbers that match the lead's phone
-                # (All numbers in available_numbers already have webhook configured)
-                selectable_numbers = [
-                    num_obj for num_obj in available_numbers 
-                    if num_obj['phone_number'] != to_phone
-                ]
-                
-                # ⚠️ CRITICAL: Only skip if there are NO selectable numbers
-                # (Either no numbers at all, or all numbers match the lead's phone)
-                if not selectable_numbers:
-                    if not available_numbers:
-                        error_msg = f"Cannot send SMS: No available Twilio numbers with webhook configured for store_id={store_id}."
-                    else:
-                        error_msg = f"Cannot send SMS: All available Twilio numbers for store_id={store_id} match the lead's phone number ({to_phone}). No alternative numbers available."
+                selected_number = phone_pool_manager.reserve_next_available_number(
+                    store_id=store_id,
+                    usage_type='sms',
+                    excluded_phone=to_phone,
+                    allowed_number_ids=webhook_number_ids,
+                )
+
+                if not selected_number:
+                    error_msg = (
+                        f"Cannot send SMS: No reservable Twilio numbers for store_id={store_id}. "
+                        "All webhook-configured numbers are at capacity, on cooldown, or match "
+                        f"the lead's phone number ({to_phone})."
+                    )
                     
                     errors.append({
                         'lead_id': lead_id,
@@ -887,9 +887,6 @@ class SMSCampaignManager:
                     print(f"⚠️ SKIPPED Lead {lead_id}: {error_msg}")
                     continue
                 
-                # Select the first available number that doesn't match the lead's phone
-                # (Numbers are already ordered by LRU - least recently used first)
-                selected_number = selectable_numbers[0]
                 from_phone = selected_number['phone_number']
                 twilio_number_id = selected_number['number_id']
                 
@@ -1073,9 +1070,6 @@ class SMSCampaignManager:
                         WHERE template_id = ?
                     """, template['template_id'])
                     conn.commit()
-                    
-                    # Increment phone number counters
-                    phone_pool_manager.increment_sms_counters(twilio_number_id)
                     
                     # Track successful send in PhoneStatus (Milestone 2)
                     try:
@@ -1273,9 +1267,6 @@ class SMSCampaignManager:
                             WHERE lead_id = ?
                         """, (retry_from_phone, retry_lead_id))
                         conn.commit()
-                        
-                        # Increment counters
-                        phone_pool_manager.increment_sms_counters(retry_twilio_number_id)
                         
                         retry_sent_count += 1
                         sent_count += 1
@@ -1504,4 +1495,3 @@ if __name__ == "__main__":
         print(f"\n❌ Test failed: {e}")
     
     print("\n" + "=" * 70)
-

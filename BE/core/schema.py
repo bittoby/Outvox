@@ -37,7 +37,7 @@ def _build_connection_strings() -> Tuple[str, str]:
     if is_localdb:
         # LocalDB: Use Windows Authentication
         base_conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"Trusted_Connection=yes;"
         )
@@ -46,7 +46,7 @@ def _build_connection_strings() -> Tuple[str, str]:
         if not SQL_USER or not SQL_PASSWORD:
             raise ValueError("SQLUser and SQLPassword are required for remote SQL Server")
         base_conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"UID={SQL_USER};"
             f"PWD={SQL_PASSWORD}"
@@ -594,10 +594,293 @@ def _create_stored_procedures(cursor):
     """)
 
 
-def create_outbound_tables():
+async def _create_postgres_schema():
+    """Create the default Postgres schema using asyncpg."""
+    try:
+        import asyncpg
+    except ImportError as exc:
+        raise RuntimeError(
+            "DATABASE_BACKEND=postgres requires asyncpg. "
+            "Install BE/requirements.txt before starting db_service."
+        ) from exc
+
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://outvox:outvox@localhost:5432/outvox",
+    )
+
+    ddl = """
+    CREATE TABLE IF NOT EXISTS stores (
+        store_id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        location VARCHAR(255),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ix_stores_active ON stores(is_active);
+
+    CREATE TABLE IF NOT EXISTS OutboundLeads (
+        lead_id SERIAL PRIMARY KEY,
+        name VARCHAR(255),
+        Address VARCHAR(255),
+        City VARCHAR(100),
+        County VARCHAR(100),
+        State VARCHAR(50),
+        Zip VARCHAR(20),
+        phone_number VARCHAR(20) UNIQUE NOT NULL
+            CHECK (phone_number ~ '^\\+1[0-9]{10}$'),
+        priority INTEGER DEFAULT 1,
+        call_count INTEGER DEFAULT 0,
+        dnc_flag BOOLEAN DEFAULT FALSE,
+        sms_verified BOOLEAN DEFAULT FALSE,
+        sms_verified_at TIMESTAMPTZ,
+        sms_consent_requested_at TIMESTAMPTZ,
+        sms_from_number VARCHAR(20),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        last_called TIMESTAMPTZ,
+        store_id INTEGER REFERENCES stores(store_id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_outboundleads_phone ON OutboundLeads(phone_number);
+    CREATE INDEX IF NOT EXISTS ix_outboundleads_dnc ON OutboundLeads(dnc_flag);
+    CREATE INDEX IF NOT EXISTS ix_outboundleads_store ON OutboundLeads(store_id);
+    CREATE INDEX IF NOT EXISTS ix_outboundleads_priority ON OutboundLeads(priority);
+    CREATE INDEX IF NOT EXISTS ix_outboundleads_sms_from_number ON OutboundLeads(sms_from_number);
+
+    CREATE TABLE IF NOT EXISTS TwilioNumbers (
+        number_id SERIAL PRIMARY KEY,
+        phone_number VARCHAR(20) UNIQUE NOT NULL
+            CHECK (phone_number ~ '^\\+1[0-9]{10}$'),
+        rotation_weight INTEGER DEFAULT 1,
+        is_active BOOLEAN DEFAULT TRUE,
+        daily_sms_count INTEGER DEFAULT 0,
+        hourly_sms_count INTEGER DEFAULT 0,
+        daily_call_count INTEGER DEFAULT 0,
+        hourly_call_count INTEGER DEFAULT 0,
+        last_batch_sent_at TIMESTAMPTZ,
+        last_call_time TIMESTAMPTZ,
+        last_hourly_reset TIMESTAMPTZ DEFAULT NOW(),
+        last_reset_date DATE DEFAULT CURRENT_DATE,
+        store_id INTEGER REFERENCES stores(store_id),
+        assigned_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS ix_twilio_numbers_phone ON TwilioNumbers(phone_number);
+    CREATE INDEX IF NOT EXISTS ix_twilio_numbers_active ON TwilioNumbers(is_active);
+    CREATE INDEX IF NOT EXISTS ix_twilio_numbers_store ON TwilioNumbers(store_id);
+
+    CREATE TABLE IF NOT EXISTS OutboundCallResults (
+        result_id SERIAL PRIMARY KEY,
+        lead_id INTEGER NOT NULL REFERENCES OutboundLeads(lead_id),
+        agent_id VARCHAR(50),
+        twilio_number VARCHAR(20),
+        call_sid VARCHAR(100),
+        call_duration INTEGER DEFAULT 0,
+        result_type VARCHAR(50),
+        customer_transcript TEXT,
+        agent_transcript TEXT,
+        combined_transcript TEXT,
+        ab_test_variant VARCHAR(10),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ix_callresults_lead ON OutboundCallResults(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_callresults_agent ON OutboundCallResults(agent_id);
+    CREATE INDEX IF NOT EXISTS ix_callresults_created ON OutboundCallResults(created_at);
+
+    CREATE TABLE IF NOT EXISTS SMSConversations (
+        sms_id SERIAL PRIMARY KEY,
+        lead_id INTEGER REFERENCES OutboundLeads(lead_id),
+        phone_number VARCHAR(20),
+        message_type VARCHAR(50),
+        message_content TEXT,
+        direction VARCHAR(20),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        twilio_sid VARCHAR(100)
+    );
+    CREATE INDEX IF NOT EXISTS ix_sms_lead ON SMSConversations(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_sms_created ON SMSConversations(created_at);
+
+    CREATE TABLE IF NOT EXISTS PhotoSubmissions (
+        photo_id SERIAL PRIMARY KEY,
+        lead_id INTEGER NOT NULL REFERENCES OutboundLeads(lead_id),
+        phone_number VARCHAR(20),
+        photo_url VARCHAR(500),
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        reviewed_at TIMESTAMPTZ,
+        reviewed_by VARCHAR(100)
+    );
+    CREATE INDEX IF NOT EXISTS ix_photos_lead ON PhotoSubmissions(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_photos_status ON PhotoSubmissions(status);
+
+    CREATE TABLE IF NOT EXISTS PopupQueue (
+        popup_id SERIAL PRIMARY KEY,
+        lead_id INTEGER NOT NULL REFERENCES OutboundLeads(lead_id),
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        dialed_at TIMESTAMPTZ,
+        dismissed_at TIMESTAMPTZ,
+        dialed_by VARCHAR(100),
+        call_sid VARCHAR(100)
+    );
+    CREATE INDEX IF NOT EXISTS ix_popupqueue_lead ON PopupQueue(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_popupqueue_status ON PopupQueue(status);
+    CREATE INDEX IF NOT EXISTS ix_popupqueue_created ON PopupQueue(created_at);
+
+    CREATE TABLE IF NOT EXISTS sms_campaigns (
+        campaign_id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES stores(store_id),
+        target_count INTEGER NOT NULL,
+        actual_sent INTEGER DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'pending',
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ix_campaigns_store ON sms_campaigns(store_id);
+    CREATE INDEX IF NOT EXISTS ix_campaigns_status ON sms_campaigns(status);
+
+    CREATE TABLE IF NOT EXISTS sms_batches (
+        batch_id SERIAL PRIMARY KEY,
+        campaign_id INTEGER NOT NULL REFERENCES sms_campaigns(campaign_id),
+        twilio_number_id INTEGER REFERENCES TwilioNumbers(number_id),
+        batch_number INTEGER NOT NULL,
+        target_count INTEGER NOT NULL,
+        actual_sent INTEGER DEFAULT 0,
+        scheduled_at TIMESTAMPTZ NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        error_message TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ix_batches_campaign ON sms_batches(campaign_id);
+    CREATE INDEX IF NOT EXISTS ix_batches_status ON sms_batches(status);
+    CREATE INDEX IF NOT EXISTS ix_batches_scheduled ON sms_batches(scheduled_at);
+
+    CREATE TABLE IF NOT EXISTS batch_lead_mapping (
+        mapping_id SERIAL PRIMARY KEY,
+        batch_id INTEGER NOT NULL REFERENCES sms_batches(batch_id),
+        lead_id INTEGER NOT NULL REFERENCES OutboundLeads(lead_id),
+        assigned_at TIMESTAMPTZ DEFAULT NOW(),
+        status VARCHAR(20) DEFAULT 'pending',
+        sent_at TIMESTAMPTZ,
+        error_code INTEGER,
+        error_message VARCHAR(500),
+        UNIQUE(batch_id, lead_id)
+    );
+    CREATE INDEX IF NOT EXISTS ix_mapping_batch ON batch_lead_mapping(batch_id);
+    CREATE INDEX IF NOT EXISTS ix_mapping_lead ON batch_lead_mapping(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_mapping_status ON batch_lead_mapping(status);
+
+    CREATE TABLE IF NOT EXISTS sms_templates (
+        template_id SERIAL PRIMARY KEY,
+        template_name VARCHAR(255) NOT NULL,
+        template_content TEXT NOT NULL,
+        template_type VARCHAR(50) DEFAULT 'consent',
+        is_active BOOLEAN DEFAULT TRUE,
+        usage_count INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ix_templates_type ON sms_templates(template_type);
+    CREATE INDEX IF NOT EXISTS ix_templates_active ON sms_templates(is_active);
+
+    CREATE TABLE IF NOT EXISTS sms_replies (
+        reply_id SERIAL PRIMARY KEY,
+        lead_id INTEGER REFERENCES OutboundLeads(lead_id) ON DELETE SET NULL,
+        from_number VARCHAR(20) NOT NULL,
+        to_number VARCHAR(20) NOT NULL,
+        body TEXT NOT NULL,
+        classification VARCHAR(10) NOT NULL CHECK (classification IN ('YES', 'STOP', 'OTHER')),
+        twilio_message_sid VARCHAR(100) NOT NULL UNIQUE,
+        received_at TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ix_sms_replies_lead_id ON sms_replies(lead_id);
+    CREATE INDEX IF NOT EXISTS ix_sms_replies_from_number ON sms_replies(from_number);
+    CREATE INDEX IF NOT EXISTS ix_sms_replies_classification ON sms_replies(classification);
+    CREATE INDEX IF NOT EXISTS ix_sms_replies_received_at ON sms_replies(received_at DESC);
+
+    CREATE TABLE IF NOT EXISTS OpenAIUsageTracking (
+        usage_id SERIAL PRIMARY KEY,
+        agent_id VARCHAR(10) NOT NULL,
+        call_sid VARCHAR(50),
+        lead_id INTEGER,
+        session_start TIMESTAMPTZ DEFAULT NOW(),
+        session_end TIMESTAMPTZ,
+        session_duration_seconds INTEGER,
+        input_tokens INTEGER DEFAULT 0,
+        output_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        input_audio_tokens INTEGER DEFAULT 0,
+        output_audio_tokens INTEGER DEFAULT 0,
+        estimated_cost_usd NUMERIC(10,4) DEFAULT 0,
+        model_name VARCHAR(50) DEFAULT 'gpt-4o-realtime-preview',
+        error_count INTEGER DEFAULT 0,
+        last_error_message TEXT,
+        status VARCHAR(20) DEFAULT 'active'
+    );
+    CREATE INDEX IF NOT EXISTS ix_openaiusage_agent ON OpenAIUsageTracking(agent_id);
+    CREATE INDEX IF NOT EXISTS ix_openaiusage_callsid ON OpenAIUsageTracking(call_sid);
+    CREATE INDEX IF NOT EXISTS ix_openaiusage_date ON OpenAIUsageTracking(session_start);
+
+    CREATE TABLE IF NOT EXISTS PhoneStatus (
+        PhoneNumber VARCHAR(20) PRIMARY KEY CHECK (PhoneNumber ~ '^\\+1[0-9]{10}$'),
+        LastSmsStatus VARCHAR(20),
+        LastErrorCode INTEGER,
+        CarrierType VARCHAR(20),
+        LastUpdatedAt TIMESTAMPTZ DEFAULT NOW(),
+        Total30003 INTEGER DEFAULT 0,
+        Total30005 INTEGER DEFAULT 0,
+        Total30006 INTEGER DEFAULT 0,
+        Total30007 INTEGER DEFAULT 0,
+        Total21610 INTEGER DEFAULT 0,
+        IsSmsAllowed BOOLEAN DEFAULT TRUE,
+        IsHardBounce BOOLEAN DEFAULT FALSE,
+        IsOptedOut BOOLEAN DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS ix_phonestatus_allowed ON PhoneStatus(IsSmsAllowed);
+    CREATE INDEX IF NOT EXISTS ix_phonestatus_optedout ON PhoneStatus(IsOptedOut);
+    CREATE INDEX IF NOT EXISTS ix_phonestatus_hardbounce ON PhoneStatus(IsHardBounce);
+    CREATE INDEX IF NOT EXISTS ix_phonestatus_lastupdated ON PhoneStatus(LastUpdatedAt);
+
+    CREATE TABLE IF NOT EXISTS PhoneValidation (
+        phone_number VARCHAR(20) PRIMARY KEY CHECK (phone_number ~ '^\\+1[0-9]{10}$'),
+        is_valid BOOLEAN DEFAULT FALSE,
+        line_type VARCHAR(50),
+        carrier VARCHAR(255),
+        is_prepaid BOOLEAN,
+        is_commercial BOOLEAN,
+        owner_name VARCHAR(255),
+        owner_type VARCHAR(50),
+        activity_score INTEGER,
+        contact_grade VARCHAR(5),
+        validated_at TIMESTAMPTZ DEFAULT NOW(),
+        api_response TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ix_phonevalidation_valid ON PhoneValidation(is_valid);
+    CREATE INDEX IF NOT EXISTS ix_phonevalidation_linetype ON PhoneValidation(line_type);
+    CREATE INDEX IF NOT EXISTS ix_phonevalidation_validatedat ON PhoneValidation(validated_at);
+    CREATE INDEX IF NOT EXISTS ix_phonevalidation_activityscore ON PhoneValidation(activity_score);
+
+    CREATE TABLE IF NOT EXISTS SystemSettings (
+        setting_key VARCHAR(100) PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
     """
-    Create all database tables required for the outbound calling system.
-    This function is called on application startup.
+
+    conn = await asyncpg.connect(database_url)
+    try:
+        logger.info("Initializing Postgres schema...")
+        await conn.execute(ddl)
+        logger.info("Postgres schema initialized successfully")
+    finally:
+        await conn.close()
+
+
+def create_outbound_tables_sqlserver():
+    """
+    Create all SQL Server tables required for the outbound calling system.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -641,3 +924,22 @@ def create_outbound_tables():
     finally:
         cursor.close()
         conn.close()
+
+
+async def create_outbound_tables_async():
+    """Create database tables for the selected DATABASE_BACKEND."""
+    backend = os.getenv("DATABASE_BACKEND", "sqlserver").lower()
+    if backend in ("postgres", "postgresql"):
+        await _create_postgres_schema()
+    elif backend in ("sqlserver", "mssql"):
+        create_outbound_tables_sqlserver()
+    else:
+        raise ValueError(
+            f"Unsupported DATABASE_BACKEND={backend!r}. "
+            "Use 'postgres' or 'sqlserver'."
+        )
+
+
+def create_outbound_tables():
+    """Backward-compatible SQL Server schema initializer."""
+    create_outbound_tables_sqlserver()

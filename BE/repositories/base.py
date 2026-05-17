@@ -18,7 +18,7 @@ class BaseRepository:
     def __init__(self):
         """Initialize repository with database configuration."""
         self.connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={os.getenv('SQLServer')};"
             f"DATABASE={os.getenv('SQLDatabase')};"
             f"UID={os.getenv('SQLUser')};"

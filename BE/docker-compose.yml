@@ -305,9 +305,14 @@ networks:
 # All configuration is loaded from .env file automatically, including:
 #
 # Required:
+#   - API_KEY
 #   - OPENAI_API_KEY
 #   - TWILIO_ACCOUNT_SID
 #   - TWILIO_AUTH_TOKEN
+#   - TWILIO_VALIDATE_SIGNATURE=true
+#   - PUBLIC_WEBHOOK_BASE_URL
+#   - MEDIA_STREAM_VALIDATE_TOKEN=true
+#   - DATABASE_BACKEND=sqlserver
 #   - SQLServer, SQLUser, SQLPassword, SQLDatabase
 #   - NGROK_HOST
 #

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 Daily Reporter Worker (Milestone 16)
 
 Generates and sends daily SMS campaign performance reports.
@@ -63,7 +63,7 @@ class DailyReporter:
     def __init__(self):
         """Initialize the daily reporter."""
         self.connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"UID={SQL_USER};"
@@ -500,4 +500,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

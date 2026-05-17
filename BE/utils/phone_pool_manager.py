@@ -19,7 +19,7 @@ import os
 import sys
 import pyodbc
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Literal
+from typing import Optional, Dict, Any, Literal, Sequence
 from dotenv import load_dotenv
 
 # Add parent directory to path for imports
@@ -66,7 +66,7 @@ class PhoneNumberPoolManager:
     def __init__(self):
         """Initialize the phone pool manager."""
         self.connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"UID={SQL_USER};"
@@ -76,6 +76,150 @@ class PhoneNumberPoolManager:
     def get_db_connection(self):
         """Get database connection."""
         return pyodbc.connect(self.connection_string)
+
+    def reserve_next_available_number(
+        self,
+        store_id: int,
+        usage_type: Literal['sms', 'call'] = 'sms',
+        excluded_phone: Optional[str] = None,
+        allowed_number_ids: Optional[Sequence[int]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Atomically reserve the next available number and increment its counters.
+
+        Reservation happens inside one SQL Server transaction using update locks,
+        so competing workers cannot select the same row before counters move.
+        The counter is consumed before the provider call; this intentionally
+        favors staying under carrier limits over reclaiming failed attempts.
+        """
+        if allowed_number_ids is not None and not allowed_number_ids:
+            return None
+
+        conn = self.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = ""
+        allowed_params: list[int] = []
+        if allowed_number_ids is not None:
+            allowed_params = [int(number_id) for number_id in allowed_number_ids]
+            placeholders = ",".join("?" for _ in allowed_params)
+
+        try:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+
+            common_filters = [
+                "is_active = 1",
+                "(store_id = ? OR store_id IS NULL)",
+            ]
+            params: list[Any] = [store_id]
+
+            if excluded_phone:
+                common_filters.append("phone_number <> ?")
+                params.append(excluded_phone)
+
+            if placeholders:
+                common_filters.append(f"number_id IN ({placeholders})")
+                params.extend(allowed_params)
+
+            if usage_type == 'sms':
+                common_filters.extend([
+                    "(hourly_sms_count < ? OR hourly_sms_count IS NULL)",
+                    "(daily_sms_count < ? OR daily_sms_count IS NULL)",
+                    "(last_batch_sent_at IS NULL OR last_batch_sent_at < DATEADD(MINUTE, -?, GETDATE()))",
+                ])
+                params.extend([
+                    self.SMS_HOURLY_LIMIT,
+                    self.SMS_DAILY_LIMIT,
+                    self.SMS_BATCH_COOLDOWN_MINUTES,
+                ])
+                query = f"""
+                    ;WITH candidate AS (
+                        SELECT TOP 1 *
+                        FROM TwilioNumbers WITH (UPDLOCK, READPAST, ROWLOCK)
+                        WHERE {' AND '.join(common_filters)}
+                        ORDER BY
+                            CASE WHEN last_batch_sent_at IS NULL THEN 0 ELSE 1 END,
+                            last_batch_sent_at ASC
+                    )
+                    UPDATE candidate
+                    SET
+                        hourly_sms_count = ISNULL(hourly_sms_count, 0) + 1,
+                        daily_sms_count = ISNULL(daily_sms_count, 0) + 1,
+                        last_batch_sent_at = GETDATE()
+                    OUTPUT
+                        inserted.number_id,
+                        inserted.phone_number,
+                        inserted.store_id,
+                        inserted.hourly_sms_count,
+                        inserted.daily_sms_count,
+                        inserted.hourly_call_count,
+                        inserted.last_batch_sent_at,
+                        inserted.last_call_time,
+                        inserted.last_hourly_reset
+                """
+            elif usage_type == 'call':
+                common_filters.extend([
+                    "(hourly_call_count < ? OR hourly_call_count IS NULL)",
+                    "(daily_call_count < ? OR daily_call_count IS NULL)",
+                    "(last_call_time IS NULL OR last_call_time < DATEADD(MINUTE, -?, GETDATE()))",
+                ])
+                params.extend([
+                    self.CALL_HOURLY_LIMIT,
+                    self.CALL_DAILY_LIMIT,
+                    self.CALL_COOLDOWN_MINUTES,
+                ])
+                query = f"""
+                    ;WITH candidate AS (
+                        SELECT TOP 1 *
+                        FROM TwilioNumbers WITH (UPDLOCK, READPAST, ROWLOCK)
+                        WHERE {' AND '.join(common_filters)}
+                        ORDER BY
+                            CASE WHEN last_call_time IS NULL THEN 0 ELSE 1 END,
+                            last_call_time ASC
+                    )
+                    UPDATE candidate
+                    SET
+                        hourly_call_count = ISNULL(hourly_call_count, 0) + 1,
+                        daily_call_count = ISNULL(daily_call_count, 0) + 1,
+                        last_call_time = GETDATE(),
+                        total_calls_made = ISNULL(total_calls_made, 0) + 1
+                    OUTPUT
+                        inserted.number_id,
+                        inserted.phone_number,
+                        inserted.store_id,
+                        inserted.hourly_sms_count,
+                        inserted.daily_sms_count,
+                        inserted.hourly_call_count,
+                        inserted.last_batch_sent_at,
+                        inserted.last_call_time,
+                        inserted.last_hourly_reset
+                """
+            else:
+                raise ValueError(f"Invalid usage_type: {usage_type}. Must be 'sms' or 'call'")
+
+            cursor.execute(query, *params)
+            row = cursor.fetchone()
+            conn.commit()
+
+            if not row:
+                return None
+
+            return {
+                'number_id': row[0],
+                'phone_number': row[1],
+                'store_id': row[2],
+                'hourly_sms_count': row[3] or 0,
+                'daily_sms_count': row[4] or 0,
+                'hourly_call_count': row[5] or 0,
+                'last_batch_sent_at': row[6],
+                'last_call_time': row[7],
+                'last_hourly_reset': row[8],
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
     
     def get_next_available_number(
         self, 
@@ -566,4 +710,3 @@ if __name__ == "__main__":
     print(f"   Estimated remaining: {capacity['estimated_remaining_capacity']} SMS")
     
     print("\n" + "=" * 70)
-

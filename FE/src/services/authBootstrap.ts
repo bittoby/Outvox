@@ -31,7 +31,6 @@ export function installApiKeyHeader(): void {
   const key = readApiKey();
   if (!key) {
     if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
       console.warn(
         '[Outvox] No API key configured. Set VITE_API_KEY in your .env, ' +
           'or call setApiKey("...") from the console. The backend will reject ' +

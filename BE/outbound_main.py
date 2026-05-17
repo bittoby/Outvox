@@ -57,10 +57,6 @@ PORT = config.agent.PORT
 from services.twilio_service import TwilioService
 twilio_service = TwilioService(AGENT_ID)
 
-# Global variables to store webhook data (used for call mapping)
-temp_lead_id = None
-temp_twilio_number = None
-
 # FastAPI application
 app = FastAPI(
     title=f"Outvox — Voice Agent {AGENT_ID}",
@@ -70,10 +66,12 @@ app = FastAPI(
 
 # API-key authentication. Twilio webhooks and the media-stream WebSocket are
 # exempted by default (see config.security.AUTH_EXEMPT_PREFIXES) because they
-# arrive without our shared secret. Validate Twilio's signature on those
-# routes if you expose them publicly — see SECURITY.md.
+# arrive without our shared secret. The webhook handlers validate Twilio's
+# signature, and generated media-stream URLs carry a signed token.
 from core.auth import install_api_key_auth
 install_api_key_auth(app, service_name=f"outbound_agent[{AGENT_ID}]")
+from core.media_stream_token import validate_media_stream_token
+from core.twilio_validation import validate_twilio_request
 
 # CORS Configuration. Override with CORS_ALLOWED_ORIGINS (comma-separated) in
 # production. The "*" default exists for local development convenience.
@@ -259,10 +257,10 @@ async def mark_dnc(phone_number: str) -> bool:
 
 async def get_lead_by_call_sid(call_sid: str) -> Optional[Dict]:
     """
-    Get lead information using the webhook's temp_lead_id.
-    
-    This is a workaround for Twilio WebSocket parameter limitations.
-    The webhook stores the lead_id in a global variable which we retrieve here.
+    Legacy fallback for call SID based lookup.
+
+    Current TwiML passes lead_id and twilio_number directly on the Twilio Media
+    Stream URL, so normal calls hydrate CallState from WebSocket query params.
     
     Args:
         call_sid: Twilio call SID (for logging purposes)
@@ -271,12 +269,7 @@ async def get_lead_by_call_sid(call_sid: str) -> Optional[Dict]:
         Dict with lead data or None if not found
     """
     try:
-        if temp_lead_id and temp_lead_id.isdigit():
-            lead_data = await get_lead_by_id(int(temp_lead_id))
-            if lead_data:
-                return lead_data
-        
-        print(f"[{AGENT_ID}] ERROR: No lead_id available for call: {call_sid}")
+        print(f"[{AGENT_ID}] ERROR: No WebSocket lead_id available for call: {call_sid}")
         return None
     except Exception as e:
         print(f"[{AGENT_ID}] ERROR: Error retrieving lead: {e}")
@@ -1022,6 +1015,7 @@ async def handle_twilio_sms_webhook(request: Request):
         async with aiohttp.ClientSession() as session:
             # Get the form data from the request
             form_data = await request.form()
+            await validate_twilio_request(request, form_data)
             
             # Forward to db_service SMS router endpoint
             async with session.post(
@@ -1032,6 +1026,8 @@ async def handle_twilio_sms_webhook(request: Request):
                 response_text = await response.text()
                 return response_text
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         print(f"[{AGENT_ID}] ERROR: Error forwarding SMS webhook: {e}")
         import traceback
         traceback.print_exc()
@@ -1060,19 +1056,13 @@ async def handle_twilio_webhook(request: Request):
     form_data = {}
     try:
         form_data = await request.form()
-    except:
-        pass
+    except Exception:
+        form_data = {}
+
+    await validate_twilio_request(request, form_data)
     
     from_number = form_data.get('From', twilio_number) or twilio_number
     to_number = form_data.get('To', '')
-    
-    # Store lead_id and twilio_number for later retrieval (in case WebSocket params don't work)
-    if lead_id:
-        # We'll store this when we get the call_sid in the WebSocket
-        # Store the lead_id and twilio_number temporarily
-        global temp_lead_id, temp_twilio_number
-        temp_lead_id = lead_id
-        temp_twilio_number = twilio_number
     
     # Pre-fetch lead data if we have lead_id (needed for to_number and customer_name)
     lead_data = None
@@ -1165,11 +1155,36 @@ async def handle_media_stream(websocket: WebSocket):
     Args:
         websocket: WebSocket connection from Twilio (routed by nginx)
     """
+    lead_id_param = websocket.query_params.get('lead_id')
+    twilio_number_param = websocket.query_params.get('twilio_number', '')
+    stream_token = websocket.query_params.get('stream_token')
+
+    if not validate_media_stream_token(stream_token, lead_id_param, twilio_number_param, AGENT_ID):
+        logger.warning(f"[{AGENT_ID}] Rejected media stream with invalid token")
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
     
     # Initialize call state
     call_state = CallState()
-    call_state.current_twilio_number = temp_twilio_number or ''
+    call_state.current_twilio_number = twilio_number_param
+
+    if lead_id_param and lead_id_param.isdigit():
+        try:
+            lead_data = await get_lead_by_id(int(lead_id_param))
+            if lead_data:
+                call_state.current_lead_id = lead_data['lead_id']
+                call_state.lead_data = lead_data
+                call_state.customer_name = lead_data.get('name')
+                phone_number = lead_data.get('phone_number')
+                call_state.closest_location_info = get_closest_location(phone_number, None)
+                logger.info(
+                    f"[{AGENT_ID}] 📋 LEAD_INFO_FROM_WS | LeadID: {call_state.current_lead_id} | "
+                    f"Name: {call_state.customer_name} | Phone: {phone_number}"
+                )
+        except Exception as e:
+            logger.warning(f"[{AGENT_ID}] ⚠️ Failed to hydrate lead from WebSocket params: {e}")
     
     # Initialize handlers
     twilio_handler = None
@@ -1734,4 +1749,3 @@ async def initialize_openai_session(
 if __name__ == "__main__":
     print(f"[{AGENT_ID}] Starting service on port {PORT}")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
-

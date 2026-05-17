@@ -19,6 +19,7 @@ from utils import (
 )
 from utils.location_mapper import default_store_key
 from core.exceptions import TwilioError, ValidationError, PhoneNumberValidationError
+from core.media_stream_token import generate_media_stream_token
 from twilio.base.exceptions import TwilioRestException
 
 
@@ -544,7 +545,13 @@ Reply STOP to opt out."""
         connect = Connect()
         
         # Construct WebSocket URL
-        websocket_url = f"wss://{config.agent.NGROK_HOST}/agent/{self.agent_id}/media-stream?lead_id={lead_id}&twilio_number={quote(twilio_number)}"
+        stream_token = generate_media_stream_token(lead_id, twilio_number, self.agent_id)
+        websocket_url = (
+            f"wss://{config.agent.NGROK_HOST}/agent/{self.agent_id}/media-stream"
+            f"?lead_id={lead_id}&twilio_number={quote(twilio_number)}"
+        )
+        if stream_token:
+            websocket_url += f"&stream_token={stream_token}"
         
         connect.stream(url=websocket_url)
         response.append(connect)
@@ -623,4 +630,3 @@ Reply STOP to opt out."""
             raise TwilioError(error_msg, details={"twilio_code": e.code if hasattr(e, 'code') else None})
         except Exception as e:
             raise TwilioError(f"Unexpected error sending SMS: {str(e)}")
-

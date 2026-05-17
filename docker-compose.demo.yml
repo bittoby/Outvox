@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: outvox-demo-postgres
+    environment:
+      POSTGRES_DB: outvox
+      POSTGRES_USER: outvox
+      POSTGRES_PASSWORD: outvox
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outvox -d outvox"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  demo-api:
+    build:
+      context: ./BE
+    container_name: outvox-demo-api
+    command: uvicorn demo.mock_services:app --host 0.0.0.0 --port 8000
+    environment:
+      DEMO_SERVICE: api
+      DATABASE_URL: postgresql://outvox:outvox@postgres:5432/outvox
+      OPENAI_BASE_URL: http://mock-openai:8081
+      TWILIO_BASE_URL: http://mock-twilio:8082
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mock-openai:
+    build:
+      context: ./BE
+    container_name: outvox-demo-openai
+    command: uvicorn demo.mock_services:app --host 0.0.0.0 --port 8081
+    environment:
+      DEMO_SERVICE: openai
+    ports:
+      - "8081:8081"
+
+  mock-twilio:
+    build:
+      context: ./BE
+    container_name: outvox-demo-twilio
+    command: uvicorn demo.mock_services:app --host 0.0.0.0 --port 8082
+    environment:
+      DEMO_SERVICE: twilio
+    ports:
+      - "8082:8082"
+
+  demo-ui:
+    image: nginx:alpine
+    container_name: outvox-demo-ui
+    volumes:
+      - ./BE/demo/index.html:/usr/share/nginx/html/index.html:ro
+    ports:
+      - "3000:80"
+    depends_on:
+      - demo-api
+      - mock-openai
+      - mock-twilio

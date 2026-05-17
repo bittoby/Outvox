@@ -33,14 +33,14 @@ def get_db_connection():
     
     if SQL_SERVER and "localdb" in SQL_SERVER.lower():
         connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"Trusted_Connection=yes;"
         )
     else:
         connection_string = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
             f"SERVER={SQL_SERVER};"
             f"DATABASE={SQL_DATABASE};"
             f"UID={SQL_USER};"
@@ -66,10 +66,15 @@ def get_elevenlabs_api_key() -> str:
 
 # Settings key for the database
 SETTINGS_KEY = "ai_provider_settings"
+_settings_table_ready = False
 
 
 def ensure_settings_table():
     """Ensure the SystemSettings table exists."""
+    global _settings_table_ready
+    if _settings_table_ready:
+        return
+
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -86,12 +91,9 @@ def ensure_settings_table():
             """)
             conn.commit()
             cursor.close()
+            _settings_table_ready = True
     except Exception as e:
         logger.error(f"Error ensuring settings table: {e}")
-
-
-# Ensure table exists on module load
-ensure_settings_table()
 
 
 @router.get("/ai-provider")
@@ -103,6 +105,7 @@ async def get_ai_provider_settings():
         AI provider settings including selected provider and provider-specific configs
     """
     try:
+        ensure_settings_table()
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -155,6 +158,7 @@ async def save_ai_provider_settings(request: SaveSettingsRequest):
         Success status and saved settings
     """
     try:
+        ensure_settings_table()
         settings_json = json.dumps({
             "selected_provider": request.selected_provider,
             "openai": request.openai.model_dump(),
@@ -203,6 +207,7 @@ async def get_active_provider():
         The currently selected provider ('openai' or 'elevenlabs')
     """
     try:
+        ensure_settings_table()
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -346,5 +351,4 @@ async def get_openai_voices():
     ]
     
     return {"voices": voices, "count": len(voices)}
-
 

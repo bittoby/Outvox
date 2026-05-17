@@ -1,6 +1,6 @@
 // SMS Conversation Detail Page - Detailed view of SMS conversation
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowLeft, Phone, Clock, User, MessageSquare, 
@@ -19,6 +19,34 @@ const SMSConversationDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [highlightedSmsId, setHighlightedSmsId] = useState<number | null>(null);
   const highlightedRef = useRef<HTMLDivElement | null>(null);
+
+  const fetchConversationDetails = useCallback(async (leadId: number) => {
+    try {
+      setLoading(true);
+      const data = await getSMSConversationDetails(leadId);
+      setConversationDetails(data);
+    } catch (error) {
+      console.error('Error fetching SMS conversation details:', error);
+      toast.error('Failed to load conversation details');
+      navigate('/sms');
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
+
+  const fetchConversationDetailsByPhone = useCallback(async (phoneNumber: string) => {
+    try {
+      setLoading(true);
+      const data = await getSMSConversationDetailsByPhone(phoneNumber);
+      setConversationDetails(data);
+    } catch (error) {
+      console.error('Error fetching SMS conversation details by phone:', error);
+      toast.error('Failed to load conversation details');
+      navigate('/sms');
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
 
   useEffect(() => {
     // Get smsId from query parameter if provided
@@ -46,35 +74,14 @@ const SMSConversationDetailPage: React.FC = () => {
       }
       fetchConversationDetails(leadId);
     }
-  }, [id, phoneNumber, searchParams, navigate]);
-
-  const fetchConversationDetails = async (leadId: number) => {
-    try {
-      setLoading(true);
-      const data = await getSMSConversationDetails(leadId);
-      setConversationDetails(data);
-    } catch (error) {
-      console.error('Error fetching SMS conversation details:', error);
-      toast.error('Failed to load conversation details');
-      navigate('/sms');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchConversationDetailsByPhone = async (phoneNumber: string) => {
-    try {
-      setLoading(true);
-      const data = await getSMSConversationDetailsByPhone(phoneNumber);
-      setConversationDetails(data);
-    } catch (error) {
-      console.error('Error fetching SMS conversation details by phone:', error);
-      toast.error('Failed to load conversation details');
-      navigate('/sms');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [
+    id,
+    phoneNumber,
+    searchParams,
+    navigate,
+    fetchConversationDetails,
+    fetchConversationDetailsByPhone,
+  ]);
 
   const formatDate = (timestamp?: string) => {
     if (!timestamp) return { date: 'N/A', time: 'N/A', full: 'N/A' };
@@ -357,4 +364,3 @@ const SMSConversationDetailPage: React.FC = () => {
 };
 
 export default SMSConversationDetailPage;
-

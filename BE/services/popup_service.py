@@ -142,7 +142,7 @@ class PopupService:
                 import pyodbc
                 import os
                 conn_str = (
-                    f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                    f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                     f"SERVER={os.getenv('SQLServer')};"
                     f"DATABASE={os.getenv('SQLDatabase')};"
                     f"UID={os.getenv('SQLUser')};"

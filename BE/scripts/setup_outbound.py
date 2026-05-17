@@ -24,7 +24,7 @@ def get_db_connection():
         # Use Windows Authentication for LocalDB
         if SQL_SERVER and "localdb" in SQL_SERVER.lower():
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"Trusted_Connection=yes;"
@@ -32,7 +32,7 @@ def get_db_connection():
         else:
             # Use SQL Server authentication for remote servers
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"UID={SQL_USER};"

@@ -224,6 +224,8 @@ async def handle_twilio_sms_webhook(request: Request):
     try:
         # Twilio sends form data, not JSON
         form_data = await request.form()
+        from core.twilio_validation import validate_twilio_request
+        await validate_twilio_request(request, form_data)
         
         # Extract Twilio webhook parameters
         from_number = form_data.get('From', '')
@@ -376,6 +378,8 @@ async def handle_sms_inbound(request: Request):
     try:
         # Twilio sends form data, not JSON
         form_data = await request.form()
+        from core.twilio_validation import validate_twilio_request
+        await validate_twilio_request(request, form_data)
         
         # Extract Twilio webhook parameters
         from_number = form_data.get('From', '')

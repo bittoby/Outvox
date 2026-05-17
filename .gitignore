@@ -54,9 +54,8 @@ Thumbs.db
 logs/
 log/
 
-# Test files
-test_*.py
-*_test.py
+# Test data fixtures (not test code — test code lives in tests/ and IS tracked)
+.pytest_cache/
 test_*.csv
 test_*.json
 test_*.txt
@@ -84,9 +83,6 @@ lerna-debug.log*
 dist/
 dist-ssr/
 *.local
-
-# Docker
-.dockerignore
 
 # Environment files
 .env.local

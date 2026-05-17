@@ -7,6 +7,7 @@ Voice agents communicate with this service via HTTP API.
 
 import os
 import pyodbc
+import asyncpg
 import uvicorn
 import aiohttp
 import asyncio
@@ -37,25 +38,29 @@ except ImportError as e:
     ROUTERS_AVAILABLE = False
 
 # Import database schema initialization
-from core.schema import create_outbound_tables
+from core.schema import create_outbound_tables_async
 
 # Import models from models package (only what's needed for agent orchestration)
 from models import CampaignRequest
 
 # Database configuration (used for health check only)
+DATABASE_BACKEND = os.getenv('DATABASE_BACKEND', 'sqlserver').lower()
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://outvox:outvox@localhost:5432/outvox')
 SQL_SERVER = os.getenv('SQLServer')
 SQL_USER = os.getenv('SQLUser')
 SQL_PASSWORD = os.getenv('SQLPassword')
 SQL_DATABASE = os.getenv('SQLDatabase')
 
 
-def get_db_connection():
-    """Get database connection (used for health check only)."""
+def get_sqlserver_connection():
+    """Get SQL Server connection (used for health check only)."""
     try:
+        if not SQL_SERVER or not SQL_DATABASE:
+            raise ValueError("SQLServer and SQLDatabase are required for DATABASE_BACKEND=sqlserver")
         # Use Windows Authentication for LocalDB
         if "localdb" in SQL_SERVER.lower():
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"Trusted_Connection=yes;"
@@ -63,7 +68,7 @@ def get_db_connection():
         else:
             # Use SQL Server authentication for remote servers
             connection_string = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+                f"DRIVER={{ODBC Driver 18 for SQL Server}};TrustServerCertificate=yes;"
                 f"SERVER={SQL_SERVER};"
                 f"DATABASE={SQL_DATABASE};"
                 f"UID={SQL_USER};"
@@ -74,13 +79,43 @@ def get_db_connection():
         print(f"Database connection error: {e}")
         raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")
 
+
+async def check_database_health():
+    """Check the configured database backend without blocking the event loop."""
+    if DATABASE_BACKEND in ("postgres", "postgresql"):
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            await conn.fetchval("SELECT 1")
+        finally:
+            await conn.close()
+        return "postgres"
+
+    if DATABASE_BACKEND in ("sqlserver", "mssql"):
+        def _check_sqlserver():
+            conn = get_sqlserver_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+            finally:
+                cursor.close()
+                conn.close()
+
+        await asyncio.to_thread(_check_sqlserver)
+        return "sqlserver"
+
+    raise HTTPException(
+        status_code=500,
+        detail=f"Unsupported DATABASE_BACKEND={DATABASE_BACKEND!r}",
+    )
+
 # Lifespan event handler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown events."""
     # Startup
     logger.info("🚀 Starting database service...")
-    create_outbound_tables()
+    await create_outbound_tables_async()
     
     # Register the FastAPI app's event loop with WebSocket service for sync broadcasts
     try:
@@ -120,7 +155,7 @@ async def lifespan(app: FastAPI):
 # FastAPI Application
 app = FastAPI(
     title="Outvox — Database Service",
-    version="1.0.0",
+    version="0.1.0",
     lifespan=lifespan
 )
 
@@ -188,23 +223,19 @@ async def root():
     return {
         "service": "Outbound Database Service",
         "status": "healthy",
-        "version": "1.0.0"
+        "version": "0.1.0"
     }
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        cursor.close()
-        conn.close()
+        backend = await check_database_health()
         
         return {
             "status": "healthy",
             "service": "database",
+            "database_backend": backend,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:

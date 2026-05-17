@@ -59,7 +59,10 @@ class TwilioConfig:
 @dataclass
 class DatabaseConfig:
     """Database configuration"""
+    BACKEND: str = os.getenv('DATABASE_BACKEND', 'sqlserver').lower()
+    URL: str = os.getenv('DATABASE_URL', 'postgresql://outvox:outvox@localhost:5432/outvox')
     SERVICE_URL: str = os.getenv('DB_SERVICE_URL', 'http://localhost:8000')
+    # Supported SQL Server runtime path. Postgres support is still experimental.
     SQL_SERVER: str = os.getenv('SQLServer', '')
     SQL_USER: str = os.getenv('SQLUser', '')
     SQL_PASSWORD: str = os.getenv('SQLPassword', '')
@@ -312,4 +315,3 @@ config = Config()
 def get_config() -> Config:
     """Get the global configuration instance"""
     return config
-

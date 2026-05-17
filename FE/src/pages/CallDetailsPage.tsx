@@ -1,6 +1,6 @@
 // Call Details Page - Detailed view of a single call
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Phone, Clock, User, CheckCircle, 
@@ -24,13 +24,7 @@ const CallDetailsPage: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  useEffect(() => {
-    if (id) {
-      fetchCallDetails(parseInt(id));
-    }
-  }, [id]);
-
-  const fetchCallDetails = async (resultId: number) => {
+  const fetchCallDetails = useCallback(async (resultId: number) => {
     try {
       setLoading(true);
       const data = await getCallDetails(resultId);
@@ -42,7 +36,13 @@ const CallDetailsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (id) {
+      fetchCallDetails(parseInt(id));
+    }
+  }, [id, fetchCallDetails]);
 
   const formatDuration = (seconds: number) => {
     if (!seconds || seconds < 0) return '0:00';
@@ -576,4 +576,3 @@ const CallDetailsPage: React.FC = () => {
 };
 
 export default CallDetailsPage;
-

@@ -7,9 +7,9 @@ public GitHub issue**. Instead, report it privately so we can investigate before
 the details become public.
 
 - **Preferred:** open a private GitHub security advisory at
-  `https://github.com/<your-org>/<your-repo>/security/advisories/new`.
-- **Alternative:** email the maintainers at `security@example.com`
-  (replace with the maintainer-controlled address after forking).
+  `https://github.com/bittoby/Outvox/security/advisories/new`.
+- If you run a public fork, configure a maintainer-controlled private security
+  address before announcing it.
 
 Please include:
 
@@ -43,22 +43,23 @@ as exhaustive is a mistake: complete your own threat model before going live.
 ### 1. Endpoint authentication
 
 Out of the box, the FastAPI services (`BE/db_service.py` on port 8000 and
-`BE/outbound_main.py` on ports 5101–5110 behind Nginx on 5100) require an API
-key on **mutating** routes when the `API_KEY` environment variable is set.
-However:
+`BE/outbound_main.py` on ports 5101–5110 behind Nginx on 5100) require an
+API key on all non-exempt routes when the `API_KEY` environment variable is
+set. However:
 
-- **Read-only routes are not authenticated.** Anyone who can reach the service
-  can list leads, campaigns, call results, and other potentially sensitive data.
-- **WebSocket endpoints** (`/media-stream`) are not authenticated and rely on
-  Twilio's webhook signature, which this software does **not** currently verify.
-  See limitation #5 below.
+- **Webhook routes are exempt from the API key** because Twilio cannot send the
+  shared Outvox key. They must remain protected by Twilio request-signature
+  validation.
+- **WebSocket endpoints** (`/media-stream`) cannot use Twilio's HTTP signature
+  header. Generated TwiML includes an HMAC `stream_token`; keep
+  `MEDIA_STREAM_VALIDATE_TOKEN=true` outside local demos.
 - If `API_KEY` is **not** set, the middleware logs a loud warning at startup and
   allows all requests. **Do not run without `API_KEY` set unless behind another
   trust boundary.**
 
 **Mitigation:** put Outvox behind a reverse proxy or VPN, set `API_KEY`,
-front any public webhook surface with Twilio request-signature validation, and
-restrict the database service to an internal network.
+keep Twilio request-signature validation enabled, keep media-stream token
+validation enabled, and restrict the database service to an internal network.
 
 ### 2. CORS
 
@@ -67,25 +68,21 @@ exact origin(s) of your frontend before exposing to the internet.
 
 ### 3. Concurrency / state correctness
 
-`BE/outbound_main.py` uses module-level globals (`temp_lead_id`,
-`temp_twilio_number`) to thread state between a Twilio webhook and a WebSocket
-handler. Two concurrent calls can cross-contaminate, causing the wrong customer
-data to be loaded for a call. This is a correctness defect with security and
-compliance implications.
-
-Similarly, `BE/utils/phone_pool_manager.py` does not lock the number-selection
-critical section, so two campaigns may claim the same Twilio number and exceed
-carrier rate limits.
+SMS number reservation uses SQL Server update locks so competing workers cannot
+claim the same Twilio number before counters move. Keep this path covered by
+integration tests before changing the repository SQL, because carrier rate
+limits are compliance-sensitive.
 
 ### 4. Webhook signature validation
 
-Twilio webhooks are accepted without validating `X-Twilio-Signature`. Anyone who
-guesses the public webhook URL can spoof inbound call events, trigger SMS
-processing for arbitrary phone numbers, or replay call results.
+Twilio HTTP webhooks are validated with `X-Twilio-Signature` by default. Keep
+`TWILIO_VALIDATE_SIGNATURE=true` outside local mock/demo traffic, and set
+`PUBLIC_WEBHOOK_BASE_URL` to the exact public scheme and host Twilio calls
+when the app sits behind ngrok, Nginx, or another reverse proxy.
 
-**Mitigation:** validate `X-Twilio-Signature` on every Twilio-originating
-endpoint using the official Twilio SDK helpers, and put the webhook surface
-behind a long, unguessable URL prefix.
+**Mitigation:** keep webhook validation enabled, use TLS, avoid logging full
+webhook bodies containing customer data, and put the webhook surface behind a
+long, unguessable URL prefix.
 
 ### 5. Secrets
 
@@ -135,12 +132,15 @@ limitations that affect operator risk in addition to the security items above.
 - [ ] Set a strong, random `API_KEY` (32+ bytes from a CSPRNG).
 - [ ] Restrict CORS `allow_origins` to your frontend's exact origin(s).
 - [ ] Put both FastAPI services behind a reverse proxy with TLS.
-- [ ] Validate `X-Twilio-Signature` on all Twilio-originating routes.
+- [ ] Keep `TWILIO_VALIDATE_SIGNATURE=true` and configure
+      `PUBLIC_WEBHOOK_BASE_URL`.
+- [ ] Keep `MEDIA_STREAM_VALIDATE_TOKEN=true` and configure a strong
+      `MEDIA_STREAM_TOKEN_SECRET` if you do not want to reuse the Twilio auth
+      token.
 - [ ] Restrict the database service to an internal network or VPN.
 - [ ] Rotate OpenAI, Twilio, Trestle, and ElevenLabs credentials regularly.
 - [ ] Enable secret-scanning on your repository fork.
 - [ ] Review and tighten the bundled DNC heuristics for your risk tolerance.
-- [ ] Implement Twilio webhook signature validation and replay protection.
 - [ ] Establish data-retention and deletion procedures for call recordings,
       transcripts, and SMS history.
 - [ ] Subscribe to security advisories on dependencies (FastAPI, Twilio SDK,
