@@ -114,8 +114,13 @@ export {
 // Re-export Phone Numbers APIs
 export {
   getAllPhoneNumbers,
+  addPhoneNumber,
   assignPhoneToStore,
   unassignPhoneFromStore,
+  activatePhoneNumber,
+  deactivatePhoneNumber,
   deletePhoneNumber,
   deletePhoneNumbers,
+  type AddPhoneNumberRequest,
+  type AddPhoneNumberResponse,
 } from './phoneNumbers';

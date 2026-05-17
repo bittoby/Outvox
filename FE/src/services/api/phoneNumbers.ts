@@ -23,6 +23,58 @@ export interface PhoneNumbersResponse {
   count: number;
 }
 
+export interface AddPhoneNumberRequest {
+  phone_number: string;
+  store_id?: number | null;
+  rotation_weight?: number;
+}
+
+export interface AddPhoneNumberResponse {
+  status: string;
+  message: string;
+  phone_number: string;
+  rotation_weight: number;
+  is_active: boolean;
+  store_id: number | null;
+  number_id: number;
+}
+
+/**
+ * Add a new Twilio phone number to the system.
+ *
+ * The backend normalizes the input to E.164 (e.g. "+15551234567"), so the UI
+ * can accept common US formats like "(555) 123-4567" or "5551234567" too.
+ */
+export async function addPhoneNumber(
+  request: AddPhoneNumberRequest
+): Promise<AddPhoneNumberResponse> {
+  try {
+    const payload: AddPhoneNumberRequest = {
+      phone_number: request.phone_number,
+      rotation_weight: request.rotation_weight ?? 1,
+    };
+    if (request.store_id !== undefined && request.store_id !== null) {
+      payload.store_id = request.store_id;
+    }
+
+    const response = await axios.post<AddPhoneNumberResponse>(
+      `${API_CONFIG.DB_SERVICE}/api/phone-numbers`,
+      payload
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('Error adding phone number:', error);
+    const detail = error.response?.data?.detail;
+    const errorMessage =
+      typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) && detail.length > 0
+          ? detail[0]?.msg || 'Invalid phone number'
+          : error.message || 'Failed to add phone number';
+    throw new Error(errorMessage);
+  }
+}
+
 /**
  * Get all phone numbers with optional store filter
  */

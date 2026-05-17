@@ -12,12 +12,20 @@ import {
   Trash2,
   X,
   ChevronDown,
-  Check
+  Check,
+  Plus
 } from 'lucide-react';
 import Card from '../components/Card/Card';
 import Button from '../components/Button/Button';
 import Badge from '../components/Badge/Badge';
-import { getAllPhoneNumbers, assignPhoneToStore, unassignPhoneFromStore, deletePhoneNumber, deletePhoneNumbers } from '../services/api/phoneNumbers';
+import {
+  getAllPhoneNumbers,
+  addPhoneNumber,
+  assignPhoneToStore,
+  unassignPhoneFromStore,
+  deletePhoneNumber,
+  deletePhoneNumbers,
+} from '../services/api/phoneNumbers';
 import { getStores } from '../services/api/stores';
 import type { PhoneNumber } from '../services/api/phoneNumbers';
 import type { Store } from '../types/lead';
@@ -34,6 +42,22 @@ const PhoneNumbersPage: React.FC = () => {
   const [assignStoreId, setAssignStoreId] = useState<number | null>(null);
   const [isAssignDropdownOpen, setIsAssignDropdownOpen] = useState(false);
   const [selectedPhones, setSelectedPhones] = useState<Set<number>>(new Set());
+
+  // Add Number modal state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addPhoneInput, setAddPhoneInput] = useState('');
+  const [addStoreId, setAddStoreId] = useState<number | null>(null);
+  const [addRotationWeight, setAddRotationWeight] = useState<number>(1);
+  const [isAddStoreDropdownOpen, setIsAddStoreDropdownOpen] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+
+  const resetAddModal = () => {
+    setAddPhoneInput('');
+    setAddStoreId(null);
+    setAddRotationWeight(1);
+    setIsAddStoreDropdownOpen(false);
+    setIsAdding(false);
+  };
 
   useEffect(() => {
     loadData();
@@ -53,6 +77,39 @@ const PhoneNumbersPage: React.FC = () => {
       toast.error('Failed to load phone numbers');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAdd = async () => {
+    const trimmed = addPhoneInput.trim();
+    if (!trimmed) {
+      toast.error('Please enter a phone number', { id: 'add-phone' });
+      return;
+    }
+    // Light client-side sanity check; backend does the real E.164 normalization.
+    const digitCount = (trimmed.match(/\d/g) || []).length;
+    if (digitCount < 10) {
+      toast.error('Phone number must contain at least 10 digits', { id: 'add-phone' });
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      toast.loading('Adding phone number...', { id: 'add-phone' });
+      const result = await addPhoneNumber({
+        phone_number: trimmed,
+        store_id: addStoreId,
+        rotation_weight: addRotationWeight,
+      });
+      toast.success(result.message || 'Phone number added!', { id: 'add-phone' });
+      setShowAddModal(false);
+      resetAddModal();
+      await loadData();
+    } catch (error: any) {
+      console.error('Add error:', error);
+      toast.error(error.message || 'Failed to add phone number', { id: 'add-phone' });
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -237,9 +294,19 @@ const PhoneNumbersPage: React.FC = () => {
             <RefreshCw className="w-4 h-4" />
             Refresh
           </Button>
+          <Button
+            onClick={() => {
+              resetAddModal();
+              setShowAddModal(true);
+            }}
+            variant="primary"
+          >
+            <Plus className="w-4 h-4" />
+            Add Number
+          </Button>
           {filteredPhones.length > 0 && (
-            <Button 
-              onClick={handleDeleteAll} 
+            <Button
+              onClick={handleDeleteAll}
               variant="danger"
               className="animate-scale-in"
             >
@@ -370,9 +437,23 @@ const PhoneNumbersPage: React.FC = () => {
           <div className="p-12 text-center">
             <Phone className="w-16 h-16 text-dark-text-muted mx-auto mb-4" />
             <p className="text-lg font-semibold text-dark-text-primary mb-2">No phone numbers found</p>
-            <p className="text-sm text-dark-text-muted">
-              {searchTerm || filterStoreId ? 'Try adjusting your filters' : 'Add phone numbers to get started'}
+            <p className="text-sm text-dark-text-muted mb-4">
+              {searchTerm || filterStoreId
+                ? 'Try adjusting your filters'
+                : 'Add a Twilio phone number to get started.'}
             </p>
+            {!searchTerm && !filterStoreId && (
+              <Button
+                onClick={() => {
+                  resetAddModal();
+                  setShowAddModal(true);
+                }}
+                variant="primary"
+              >
+                <Plus className="w-4 h-4" />
+                Add Number
+              </Button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -590,6 +671,186 @@ const PhoneNumbersPage: React.FC = () => {
                 disabled={assignStoreId === null || assignStoreId === undefined}
               >
                 {assignStoreId !== null && assignStoreId !== undefined && selectedPhone?.store_id === assignStoreId ? 'Update' : 'Assign'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Number Modal */}
+      {showAddModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => {
+            if (isAdding) return;
+            setShowAddModal(false);
+            resetAddModal();
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-dark-surface border-2 border-dark-border rounded-2xl shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-dark-border">
+              <div>
+                <h2 className="text-xl font-bold text-dark-text-primary">Add Phone Number</h2>
+                <p className="text-sm text-dark-text-muted mt-1">
+                  Register a Twilio number for calls and SMS
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (isAdding) return;
+                  setShowAddModal(false);
+                  resetAddModal();
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-dark-text-muted hover:text-dark-text-primary hover:bg-dark-elevated transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-dark-text-primary mb-2">
+                  Phone Number *
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary-light" />
+                  <input
+                    type="tel"
+                    value={addPhoneInput}
+                    onChange={(e) => setAddPhoneInput(e.target.value)}
+                    placeholder="+1 (555) 123-4567"
+                    autoFocus
+                    className="w-full pl-10 pr-4 py-3 bg-dark-elevated border-2 border-dark-border rounded-lg text-dark-text-primary placeholder:text-dark-text-muted focus:border-primary focus:outline-none transition-all"
+                  />
+                </div>
+                <p className="text-xs text-dark-text-muted mt-1">
+                  US numbers are normalized to E.164 automatically (e.g. <code>+15551234567</code>).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-dark-text-primary mb-2">
+                  Assign to Store (optional)
+                </label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddStoreDropdownOpen(!isAddStoreDropdownOpen)}
+                    className="w-full px-4 py-3 pl-12 pr-10 bg-dark-elevated border-2 border-dark-border rounded-lg text-dark-text-primary focus:border-primary focus:outline-none transition-all hover:border-primary/50 font-medium text-left flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <StoreIcon className="absolute left-4 w-4 h-4 text-primary-light" />
+                      <span className="truncate">
+                        {addStoreId
+                          ? stores.find((s) => s.store_id === addStoreId)?.name || 'Select store...'
+                          : 'Unassigned'}
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-dark-text-muted transition-transform ${
+                        isAddStoreDropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {isAddStoreDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-2 bg-dark-elevated border-2 border-dark-border rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddStoreId(null);
+                          setIsAddStoreDropdownOpen(false);
+                        }}
+                        className={`w-full px-4 py-3 text-left hover:bg-primary/10 transition-colors flex items-center justify-between ${
+                          !addStoreId ? 'bg-primary/5 border-l-2 border-primary-light' : ''
+                        }`}
+                      >
+                        <span className="text-dark-text-muted italic">Unassigned</span>
+                        {!addStoreId && <Check className="w-4 h-4 text-primary-light" />}
+                      </button>
+                      {stores.map((store) => (
+                        <button
+                          key={store.store_id}
+                          type="button"
+                          onClick={() => {
+                            setAddStoreId(store.store_id);
+                            setIsAddStoreDropdownOpen(false);
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-primary/10 transition-colors flex items-center justify-between ${
+                            addStoreId === store.store_id
+                              ? 'bg-primary/5 border-l-2 border-primary-light'
+                              : ''
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-dark-text-primary">{store.name}</div>
+                            <div className="text-xs text-dark-text-muted truncate">
+                              {store.location}
+                            </div>
+                          </div>
+                          {addStoreId === store.store_id && (
+                            <Check className="w-4 h-4 text-primary-light" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-dark-text-primary mb-2">
+                  Rotation Weight
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={addRotationWeight}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setAddRotationWeight(Number.isFinite(n) && n >= 0 ? n : 1);
+                  }}
+                  className="w-full px-4 py-3 bg-dark-elevated border-2 border-dark-border rounded-lg text-dark-text-primary focus:border-primary focus:outline-none transition-all"
+                />
+                <p className="text-xs text-dark-text-muted mt-1">
+                  Higher weight = used more often in rotation. Default <code>1</code>.
+                </p>
+              </div>
+
+              <div className="bg-info/10 border border-info/30 rounded-lg p-4">
+                <p className="text-sm text-dark-text-primary">
+                  <strong>Tip:</strong> Make sure this number is purchased and provisioned in your
+                  Twilio console first. Outvox only stores it for routing and rate limiting — it
+                  doesn't buy numbers from Twilio for you.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-dark-border flex gap-3">
+              <Button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetAddModal();
+                }}
+                variant="secondary"
+                className="flex-1"
+                disabled={isAdding}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAdd}
+                variant="primary"
+                className="flex-1"
+                disabled={isAdding || addPhoneInput.trim().length === 0}
+                isLoading={isAdding}
+              >
+                <Plus className="w-4 h-4" />
+                Add Number
               </Button>
             </div>
           </div>
