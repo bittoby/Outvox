@@ -2,8 +2,8 @@
 
 # Outvox
 
-**Open-source outbound voice and SMS platform.**
-Live AI phone conversations on Twilio, powered by OpenAI Realtime.
+**The open-source outbound voice and SMS platform.**
+Real AI conversations with your leads — at scale, with full control of your data, prompts, and brand.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/bittoby/Outvox/actions/workflows/ci.yml/badge.svg)](https://github.com/bittoby/Outvox/actions/workflows/ci.yml)
@@ -21,9 +21,46 @@ Live AI phone conversations on Twilio, powered by OpenAI Realtime.
 
 ---
 
+## Why Outvox?
+
+Outbound calling and SMS used to mean a choice between two bad options: hire a call centre and pay per seat, or blast voicemails and watch carriers block your numbers. Outvox is a third path — an AI voice agent that holds *real, two-way conversations* with your leads, paired with a carrier-aware SMS engine that runs templated campaigns inside the rules the FCC and CTIA actually enforce.
+
+### What you can build with it
+
+- **Lead qualification at scale** — call hundreds of inbound web-form leads a day and pass only the qualified ones to your sales team.
+- **Appointment and consultation booking** — let the AI book directly into your calendar, on the lead's first reply.
+- **Re-engagement campaigns** — wake dormant leads with personalised SMS, then escalate to a voice call when they reply YES.
+- **Carrier-safe SMS blasts** — templated, rate-limited, consent-tracked, with YES / STOP / opt-out classification built in.
+- **Multi-tenant operations** — every customer-facing string (company name, agent persona, products, prompts) is env-driven, so the same code base can serve many brands.
+- **Inbound photo capture** — leads reply with images (vehicle damage, ID, asset photos) and the dashboard catalogues them for review.
+
+### Why this and not a closed SaaS dialer?
+
+| | Outvox | Typical SaaS dialer |
+| --- | --- | --- |
+| Who holds your call transcripts and lead lists | You | The vendor |
+| Per-minute markup on Twilio + OpenAI | None — pay both at cost | Yes, layered on top |
+| Voice prompt | Plain text in `BE/prompts/`, edit and diff freely | Locked behind a UI |
+| White-labelling | Built in via env vars | Often a paid tier |
+| License | Apache 2.0 — commercial use, fork, resell | Proprietary |
+| Auditable source for compliance + security claims | Yes — see [`SECURITY.md`](SECURITY.md) and [`DISCLAIMER.md`](DISCLAIMER.md) | No |
+
+### Who it's for
+
+- **Operators** running their own outbound programs who want full control of data, prompts, and infrastructure.
+- **Agencies** serving multiple clients — one deployment, many brands via environment variables.
+- **Developers** building voice or SMS products on top of Twilio + OpenAI Realtime who would rather start at "working dashboard with a fleet, consent flow, and lead pipeline" than at a blank `main.py`.
+- **Compliance-sensitive teams** who need to read the code, not trust a marketing page.
+
+### Hosted version coming soon
+
+Don't want to manage Twilio numbers, SQL Server, and ngrok yourself? A hosted Outvox service is in development — sign-in, billing, and a managed fleet, with the same dashboard and the same open source code underneath. Watch this repo or open an issue tagged `hosted-interest` to be notified when early access opens.
+
+---
+
 ## What is Outvox?
 
-Outvox is a self-hostable platform for running **AI-driven outbound voice and SMS campaigns**. When you start a call, an **OpenAI Realtime** voice agent holds a live, two-way conversation with your lead, bridged through **Twilio** over the regular phone network. SMS works the same way — your stored templates go out through Twilio and replies (YES, STOP, photos) flow back in.
+Outvox is an open-source platform for running **AI-driven outbound voice and SMS campaigns**. When you start a call, an **OpenAI Realtime** voice agent holds a live, two-way conversation with your lead, bridged through **Twilio** over the regular phone network. SMS works the same way — your stored templates go out through Twilio and replies (YES, STOP, photos) flow back in.
 
 ### Features
 
@@ -38,25 +75,33 @@ Outvox is a self-hostable platform for running **AI-driven outbound voice and SM
 
 ```mermaid
 flowchart LR
-    Lead([Lead<br/>real phone])
-    Twilio[Twilio<br/>cloud]
-    Ngrok[ngrok tunnel<br/>public HTTPS]
-    Agent[Voice Agent<br/>:5001 single<br/>or :5100 fleet]
-    OpenAI[OpenAI Realtime]
-    DB[db_service<br/>:8000]
-    SQL[(SQL Server)]
-    FE[Dashboard<br/>:3000]
+    Operator(["👤 Operator"])
+    Lead(["📱 Lead"])
 
-    Twilio <-->|PSTN audio| Lead
-    Twilio <-->|webhooks + media| Ngrok
-    Ngrok <--> Agent
-    Agent <-->|AI audio| OpenAI
-    Agent <-->|HTTP| DB
-    DB <--> SQL
-    FE -->|X-API-Key| DB
+    subgraph stack["💻 Your Outvox stack"]
+        direction TB
+        FE["Dashboard<br/>React · :3000"]
+        DB["Backend<br/>db_service · :8000"]
+        Agent["Voice Agent<br/>FastAPI · :5001"]
+        SQL[("SQL Server")]
+        FE --- DB
+        DB --- SQL
+        DB --- Agent
+    end
+
+    Twilio["Twilio<br/>phone network"]
+    OpenAI["OpenAI Realtime<br/>AI conversation"]
+    Ngrok["ngrok tunnel<br/>public HTTPS"]
+
+    Operator -->|manages leads,<br/>starts campaigns| FE
+    Agent -->|① places call| Twilio
+    Twilio <==>|② live phone call| Lead
+    Twilio -->|③ webhooks + audio<br/>via ngrok| Ngrok
+    Ngrok --> Agent
+    Agent <==>|④ speech in,<br/>speech out| OpenAI
 ```
 
-You run four things on your machine: the **database service**, one or more **voice agents**, the **dashboard**, and an **ngrok tunnel** so Twilio's cloud can reach your local agent. Twilio handles the actual phone network; OpenAI handles the AI conversation; Outvox is the glue.
+**Read it as a story.** The **operator** opens the dashboard and starts a campaign. The backend hands the job to a **voice agent**, which asks **Twilio** to place the call ①. When the lead picks up ②, Twilio streams the audio back to your machine through the **ngrok tunnel** ③ — necessary because Twilio's cloud can't otherwise reach a service running on your laptop. The agent relays that audio to **OpenAI Realtime** ④, which talks back in real time. Everything Twilio hears, OpenAI hears; everything OpenAI says, Twilio plays to the lead. The backend logs every call, message, and transcript along the way.
 
 <details>
 <summary><strong>New here? Quick vocabulary</strong></summary>
@@ -82,10 +127,11 @@ You run four things on your machine: the **database service**, one or more **voi
 
 | I want to... | Time | Go to |
 | --- | --- | --- |
-| **Try the demo** with no credentials — just see the dashboard | ~5 min | [Demo mode](#demo-mode-no-credentials) |
-| **Run it locally** with my own Twilio + OpenAI keys (single agent — most users start here) | ~20 min | [Quick start](#quick-start) |
-| **Scale to 10 concurrent calls** with the Docker fleet | +10 min on top of Quick start | [Scale-up: 10-agent fleet](#scale-up-10-agent-fleet) |
-| **Deploy this for real** with hardening | — | [`SECURITY.md`](SECURITY.md) |
+| **Try the demo** with no credentials — just see the dashboard in action | ~5 min | [Demo mode](#demo-mode-no-credentials) |
+| **Run it with my own Twilio + OpenAI keys** (single agent — most operators start here) | ~20 min | [Quick start](#quick-start) |
+| **Scale to ~10 concurrent calls** behind a load balancer | +10 min on top of Quick start | [Scale-up: 10-agent fleet](#scale-up-10-agent-fleet) |
+| **Harden a real deployment** behind TLS and a proper auth boundary | — | [`SECURITY.md`](SECURITY.md) |
+| **Skip the ops entirely** — use the upcoming hosted service | — | [Hosted version](#hosted-version-coming-soon) |
 
 > **Single agent or fleet?** Each voice agent handles roughly one concurrent call. If you need more parallel calls, run the fleet. The setup is otherwise identical — the only difference is which port ngrok tunnels to (5001 vs 5100). Start with a single agent first.
 
